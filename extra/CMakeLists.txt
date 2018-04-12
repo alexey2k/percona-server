@@ -121,6 +121,7 @@ IF(WITH_INNOBASE_STORAGE_ENGINE)
       ../storage/innobase/ut/ut0crc32.cc
       ../storage/innobase/ut/ut0ut.cc
       ../storage/innobase/buf/buf0buf.cc
+      ../storage/innobase/buf/buf0tracepoint.cc
       ../storage/innobase/page/page0zip.cc
       ../storage/innobase/os/os0file.cc
      )
@@ -139,7 +140,7 @@ IF(WITH_INNOBASE_STORAGE_ENGINE)
   ENDIF()
 
   MYSQL_ADD_EXECUTABLE(innochecksum innochecksum.cc ${INNOBASE_SOURCES})
-  TARGET_LINK_LIBRARIES(innochecksum mysys mysys_ssl ${LZ4_LIBRARY})
+  TARGET_LINK_LIBRARIES(innochecksum mysys mysys_ssl ${LZ4_LIBRARY}  -Wl,--no-as-needed -ldl ${LTTNG_UST_LIBRARY})
   ADD_DEPENDENCIES(innochecksum GenError)
 ENDIF()
 

@@ -254,6 +254,13 @@ INCLUDE(mysql_add_executable)
 INCLUDE(curl)
 INCLUDE(prepend_append_cflags_if_supported)
 
+
+#LTTNG
+#if (NOT LTTNG_UST_INCLUDE_DIR)
+  find_path(LTTNG_UST_INCLUDE_DIR lttng/tracepoint.h)
+  find_library(LTTNG_UST_LIBRARY NAMES lttng-ust)
+#endif()
+
 # Handle options
 IF(EXISTS ${CMAKE_SOURCE_DIR}/rapid)
   OPTION(WITH_RAPID

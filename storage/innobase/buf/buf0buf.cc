@@ -72,6 +72,9 @@ Created 11/5/1995 Heikki Tuuri
 #include "trx0trx.h"
 #include "srv0start.h"
 
+#define TRACEPOINT_DEFINE
+#include "buf0tracepoint.h"
+
 #include <new>
 #include <map>
 #include <sstream>
@@ -6068,6 +6071,9 @@ retry_mutex:
 	DBUG_PRINT("ib_buf", ("%s page " UINT32PF ":" UINT32PF,
 			      io_type == BUF_IO_READ ? "read" : "wrote",
 			      bpage->id.space(), bpage->id.page_no()));
+
+        tracepoint(buf_tracepoint, message, io_type == BUF_IO_READ ? "read" : "wrote", 
+                     bpage->id.space(), bpage->id.page_no());
 
 	return(true);
 }

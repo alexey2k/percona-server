@@ -27,6 +27,7 @@ SET(INNOBASE_SOURCES
 	btr/btr0bulk.cc
 	buf/buf0buddy.cc
 	buf/buf0buf.cc
+        buf/buf0tracepoint.cc
 	buf/buf0dblwr.cc
 	buf/buf0checksum.cc
 	buf/buf0dump.cc
