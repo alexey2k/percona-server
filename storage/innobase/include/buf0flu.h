@@ -122,7 +122,7 @@ buf_flush_do_batch(
 	buf_flush_t		type,
 	ulint			min_n,
 	lsn_t			lsn_limit,
-	ulint*			n_processed);
+	std::pair<ulint, ulint> *			n_processed);
 
 /******************************************************************//**
 This function picks up a single page from the tail of the LRU
@@ -132,7 +132,7 @@ they are unable to find a replaceable page at the tail of the LRU
 list i.e.: when the background LRU flushing in the page_cleaner thread
 is not fast enough to keep pace with the workload.
 @return true if success. */
-bool
+std::pair<ulint, ulint> 
 buf_flush_single_page_from_LRU(
 /*===========================*/
 	buf_pool_t*	buf_pool);	/*!< in/out: buffer pool instance */

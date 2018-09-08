@@ -530,7 +530,7 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_SET_MEMBER, MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
 	 MONITOR_LRU_BATCH_FLUSH_PAGES},
 
-	/* Cumulative counter for LRU batch pages flushed */
+	/* Cumulative counter for LRU batch pages evicted */
 	{"buffer_LRU_batch_evict_total_pages", "buffer",
 	 "Total pages evicted as part of LRU batches",
 	 MONITOR_SET_OWNER, MONITOR_LRU_BATCH_EVICT_COUNT,
@@ -562,6 +562,38 @@ static monitor_info_t	innodb_counter_info[] =
 	 "Page scanned per single LRU flush",
 	 MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_FLUSH_SCANNED,
 	 MONITOR_LRU_SINGLE_FLUSH_SCANNED_PER_CALL},
+
+        /* Cumulative counter for LRU single page flushed */
+        {"buffer_LRU_single_flush_total_pages", "buffer",
+         "Total pages flushed as part of LRU single flush",
+         MONITOR_SET_OWNER, MONITOR_LRU_SINGLE_FLUSH_COUNT,
+         MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE},
+
+        {"buffer_LRU_single_flush", "buffer",
+         "Number of LRU single flushes",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_FLUSH_COUNT},
+
+        {"buffer_LRU_single_flush_page", "buffer",
+         "Pages queued as an LRU single flush",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_FLUSH_PAGES},
+         
+       /* Cumulative counter for LRU single page evicted */
+        {"buffer_LRU_single_evict_total_pages", "buffer",
+         "Total pages evicted as part of LRU single eviction",
+         MONITOR_SET_OWNER, MONITOR_LRU_SINGLE_EVICT_COUNT,
+         MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE},
+
+        {"buffer_LRU_single_evict", "buffer",
+         "Number of LRU single eviction",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_EVICT_COUNT},
+
+        {"buffer_LRU_single_evict_pages", "buffer",
+         "Pages queued as an LRU single eviction",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_EVICT_PAGES},
 
 	{"buffer_LRU_single_flush_failure_count", "Buffer",
 	 "Number of times attempt to flush a single page from LRU failed",

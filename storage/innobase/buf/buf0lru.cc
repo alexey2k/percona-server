@@ -1635,7 +1635,14 @@ loop:
 	involved (particularly in case of compressed pages). We
 	can do that in a separate patch sometime in future. */
 
-	if (!buf_flush_single_page_from_LRU(buf_pool)) {
+        std::pair<ulint, ulint>         n_flushed;
+        
+        n_flushed.first=0;
+        n_flushed.second=0;
+
+	n_flushed=buf_flush_single_page_from_LRU(buf_pool);
+	
+	if ((n_flushed.first+n_flushed.second)==0) {
 		MONITOR_INC(MONITOR_LRU_SINGLE_FLUSH_FAILURE_COUNT);
 		++flush_failures;
 	}

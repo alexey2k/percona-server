@@ -289,6 +289,15 @@ ulong	srv_n_page_hash_locks = 16;
 
 /** Scan depth for LRU flush batch i.e.: number of blocks scanned*/
 ulong	srv_LRU_scan_depth	= 1024;
+
+
+ulong srv_var1=0;
+ulong srv_var2=0;
+ulong srv_var3=0;
+ulong srv_var4=0;
+ulong srv_var5=0;
+
+
 /** Whether or not to flush neighbors of a block */
 ulong	srv_flush_neighbors	= 1;
 /** Previously requested size. Accesses protected by memory barriers. */
