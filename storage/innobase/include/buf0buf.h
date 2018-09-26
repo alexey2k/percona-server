@@ -2290,6 +2290,8 @@ struct buf_pool_t{
 					individual watch page is protected by
 					a corresponding individual page_hash
 					latch. */
+	ulint waiters;
+	ulint n_iter;
 
 #if BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN
 # error "BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN"

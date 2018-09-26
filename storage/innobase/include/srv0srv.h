@@ -370,6 +370,13 @@ extern const ulong	srv_buf_pool_instances_default;
 extern ulong	srv_n_page_hash_locks;
 /** Scan depth for LRU flush batch i.e.: number of blocks scanned*/
 extern ulong	srv_LRU_scan_depth;
+
+extern ulong srv_var1;
+extern ulong srv_var2;
+extern ulong srv_var3;
+extern ulong srv_var4;
+extern ulong srv_var5;
+
 /** Whether or not to flush neighbors of a block */
 extern ulong	srv_flush_neighbors;
 /** Previously requested size. Accesses protected by memory barriers. */

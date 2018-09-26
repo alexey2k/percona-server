@@ -21407,7 +21407,34 @@ static MYSQL_SYSVAR_BOOL(buffer_pool_load_at_startup, srv_buffer_pool_load_at_st
 static MYSQL_SYSVAR_ULONG(lru_scan_depth, srv_LRU_scan_depth,
   PLUGIN_VAR_RQCMDARG,
   "How deep to scan LRU to keep it clean",
-  NULL, NULL, 1024, 100, ~0UL, 0);
+  NULL, NULL, 1024, 0, ~0UL, 0);
+
+
+static MYSQL_SYSVAR_ULONG(var1, srv_var1,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var2, srv_var2,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var3, srv_var3,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var4, srv_var4,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var5, srv_var5,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
 
 static MYSQL_SYSVAR_ULONG(flush_neighbors, srv_flush_neighbors,
   PLUGIN_VAR_OPCMDARG,
@@ -22021,6 +22048,11 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(buffer_pool_load_abort),
   MYSQL_SYSVAR(buffer_pool_load_at_startup),
   MYSQL_SYSVAR(lru_scan_depth),
+  MYSQL_SYSVAR(var1),
+  MYSQL_SYSVAR(var2),
+  MYSQL_SYSVAR(var3),
+  MYSQL_SYSVAR(var4),
+  MYSQL_SYSVAR(var5),
   MYSQL_SYSVAR(flush_neighbors),
   MYSQL_SYSVAR(checksum_algorithm),
   MYSQL_SYSVAR(log_checksums),

@@ -1499,6 +1499,15 @@ loop:
 
 		block->skip_flush_check = false;
 		block->page.flush_observer = NULL;
+		if (n_iterations)
+		{
+		  os_atomic_decrement_ulint(&buf_pool->waiters,1);
+		  os_atomic_decrement_ulint(&buf_pool->n_iter,n_iterations);
+		}
+		else
+		{
+		  MONITOR_INC( MONITOR_LRU_GET_FREE_OK );
+		}
 		return(block);
 	}
 
@@ -1527,17 +1536,19 @@ loop:
 
 		ut_ad(buf_lru_manager_running_threads
 		      == srv_buf_pool_instances);
-
+               if (!n_iterations)
+                 os_atomic_increment_ulint(&buf_pool->waiters,1);
 		/* Backoff to minimize the free list mutex contention while the
 		free list is empty */
 		ulint	priority = srv_current_thread_priority;
 
 		if (n_iterations < 3) {
-
+			                os_atomic_increment_ulint(&buf_pool->n_iter,1);
 			os_thread_yield();
 			if (!priority) {
 				os_thread_yield();
 			}
+
 		} else {
 
 			ulint	i, b;
@@ -1555,6 +1566,7 @@ loop:
 			if (b > MAX_FREE_LIST_BACKOFF_SLEEP) {
 				b = MAX_FREE_LIST_BACKOFF_SLEEP;
 			}
+			                os_atomic_increment_ulint(&buf_pool->n_iter,1);
 			os_thread_sleep(b / (priority
 				? FREE_LIST_BACKOFF_HIGH_PRIO_DIVIDER
 				: FREE_LIST_BACKOFF_LOW_PRIO_DIVIDER));
@@ -1566,6 +1578,7 @@ loop:
 						   &started_monitor);
 
 		n_iterations++;
+
 
 		srv_stats.buf_pool_wait_free.add(n_iterations, 1);
 
@@ -1655,7 +1668,14 @@ loop:
 	involved (particularly in case of compressed pages). We
 	can do that in a separate patch sometime in future. */
 
-	if (!buf_flush_single_page_from_LRU(buf_pool)) {
+        std::pair<ulint, ulint>         n_flushed;
+        
+        n_flushed.first=0;
+        n_flushed.second=0;
+
+	n_flushed=buf_flush_single_page_from_LRU(buf_pool);
+	
+	if ((n_flushed.first+n_flushed.second)==0) {
 		MONITOR_INC(MONITOR_LRU_SINGLE_FLUSH_FAILURE_COUNT);
 		++flush_failures;
 	}

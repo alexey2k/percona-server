@@ -2272,7 +2272,9 @@ buf_pool_withdraw_blocks(
 		if (UT_LIST_GET_LEN(buf_pool->withdraw)
 		    < buf_pool->withdraw_target) {
 			ulint	scan_depth;
-			ulint	n_flushed = 0;
+			std::pair<ulint, ulint> n_flushed;
+                         n_flushed.first=0;
+                         n_flushed.second=0;
 
 			/* cap scan_depth with current LRU size. */
 			scan_depth = ut_min(
@@ -2286,12 +2288,12 @@ buf_pool_withdraw_blocks(
 				scan_depth, 0, &n_flushed);
 			buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
 
-			if (n_flushed) {
+			if (n_flushed.first+n_flushed.second) {
 				MONITOR_INC_VALUE_CUMULATIVE(
 					MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
 					MONITOR_LRU_BATCH_FLUSH_COUNT,
 					MONITOR_LRU_BATCH_FLUSH_PAGES,
-					n_flushed);
+					n_flushed.first+n_flushed.second);
 			}
 		} else {
 
