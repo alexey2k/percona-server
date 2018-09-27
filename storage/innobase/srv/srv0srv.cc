@@ -304,6 +304,8 @@ ulong srv_var8=0;
 ulong srv_var9=0;
 ulong srv_var10=0;
 
+ulong srv_var11=0;
+ulong srv_var12=0;
 
 /** Whether or not to flush neighbors of a block */
 ulong	srv_flush_neighbors	= 1;

@@ -2293,6 +2293,7 @@ struct buf_pool_t{
 	ulint waiters;
 	ulint n_iter;
 	ulint flush_list_flushed;
+	ulint demand;
 
 #if BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN
 # error "BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN"

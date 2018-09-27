@@ -21461,6 +21461,15 @@ static MYSQL_SYSVAR_ULONG(var10, srv_var10,
   "How deep to scan LRU to keep it clean",
   NULL, NULL, 0, 0, ~0UL, 0);
 
+static MYSQL_SYSVAR_ULONG(var11, srv_var11,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var12, srv_var12,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
 
 static MYSQL_SYSVAR_ULONG(flush_neighbors, srv_flush_neighbors,
   PLUGIN_VAR_OPCMDARG,
@@ -22084,6 +22093,8 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(var8),
   MYSQL_SYSVAR(var9),  
   MYSQL_SYSVAR(var10),
+    MYSQL_SYSVAR(var11),  
+    MYSQL_SYSVAR(var12),
   MYSQL_SYSVAR(flush_neighbors),
   MYSQL_SYSVAR(checksum_algorithm),
   MYSQL_SYSVAR(log_checksums),

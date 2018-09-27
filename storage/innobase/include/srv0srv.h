@@ -383,6 +383,9 @@ extern ulong srv_var8;
 extern ulong srv_var9;
 extern ulong srv_var10;
 
+extern ulong srv_var11;
+extern ulong srv_var12;
+
 
 /** Whether or not to flush neighbors of a block */
 extern ulong	srv_flush_neighbors;

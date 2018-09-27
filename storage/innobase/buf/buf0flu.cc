@@ -1689,11 +1689,12 @@ buf_flush_LRU_list_batch(
 
         ulint custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
         ulint custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+        ulint custom_scan_limit= srv_var11 ? srv_var11 : srv_LRU_scan_depth;
 
 	for (bpage = UT_LIST_GET_LAST(buf_pool->LRU);
 	     bpage != NULL && ((count + evict_count) < custom_max)
 	     && free_len < custom_LRU_scan_depth + withdraw_depth
-	     && lru_len > BUF_LRU_MIN_LEN;
+	     && lru_len > BUF_LRU_MIN_LEN && scanned< custom_scan_limit;
 	     ++scanned,
 	     bpage = buf_pool->lru_hp.get()) {
 
@@ -1738,9 +1739,9 @@ buf_flush_LRU_list_batch(
 		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
 		
 //                custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
-                custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)) : max; 
-
-	}
+                custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+                custom_scan_limit= srv_var11 ? srv_var11 : srv_LRU_scan_depth;
+	}    
 
 	buf_pool->lru_hp.set(NULL);
 
