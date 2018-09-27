@@ -1,0 +1,116 @@
+--- storage/innobase/buf/buf0flu.cc
++++ storage/innobase/buf/buf0flu.cc
+@@ -3652,35 +3724,52 @@ the last flush result
+ static
+ void
+ buf_lru_manager_adapt_sleep_time(
++        ulint i,
+ 	const buf_pool_t*	buf_pool,
+-	ulint			lru_n_flushed,
++        std::pair<ulint, ulint> 			lru_n,
+ 	ulint*			lru_sleep_time)
+ {
++        ulint sce;
+ 	const ulint free_len = UT_LIST_GET_LEN(buf_pool->free);
+ 	const ulint max_free_len = std::min(
+ 			UT_LIST_GET_LEN(buf_pool->LRU), srv_LRU_scan_depth);
+ 
+-	if (free_len < max_free_len / 100 && lru_n_flushed) {
++       if (srv_var2)
++       fprintf(stderr,"before: i: %ld, free: %ld, max_free: %ld, fl: %ld, ev: %ld, lru_sleep: %lu\n",
++                       i, free_len, max_free_len, lru_n.first, lru_n.second, (ulint)(*lru_sleep_time));
++	if (free_len < max_free_len / 100 && lru_n.first && lru_n.second>1) {
+ 
+ 		/* Free list filled less than 1% and the last iteration was
+ 		able to flush, no sleep */
+ 		*lru_sleep_time = 0;
++		sce=0;
++	} else if (free_len < max_free_len / 100 && !lru_n.first && lru_n.second==1){
++	        sce=4;
++	        *lru_sleep_time = srv_var4;;	
+ 	} else if (free_len > max_free_len / 5
+-		   || (free_len < max_free_len / 100 && lru_n_flushed == 0)) {
++//		   || (free_len < max_free_len / 100 && (lru_n.first + lru_n.second) == 0)) {
++		   || (free_len < max_free_len / 100 && lru_n.first == 0 && lru_n.second <= 1)) {
+ 
+ 		/* Free list filled more than 20% or no pages flushed in the
+ 		previous batch, sleep a bit more */
+ 		*lru_sleep_time += 1;
++		sce=1;
+ 		if (*lru_sleep_time > srv_cleaner_max_lru_time)
+ 			*lru_sleep_time = srv_cleaner_max_lru_time;
+ 	} else if (free_len < max_free_len / 20 && *lru_sleep_time >= 50) {
+ 
+ 		/* Free list filled less than 5%, sleep a bit less */
+ 		*lru_sleep_time -= 50;
++		sce=2;
+ 	} else {
+ 
+ 		/* Free lists filled between 5% and 20%, no change */
++		sce=3;
+ 	}
++       if (srv_var2)
++       fprintf(stderr,"after : i: %ld, free: %ld, max_free: %ld, fl: %ld, ev: %ld, lru_sleep: %ld, sce: %lu\n",
++                       i, free_len, max_free_len, lru_n.first, lru_n.second, (*lru_sleep_time), sce);
++
+ }
+ 
+ /** LRU manager thread for performing LRU flushed and evictions for buffer pool
+@@ -3723,7 +3812,9 @@ DECLARE_THREAD(buf_lru_manager)(
+ 
+ 	ulint	lru_sleep_time	= 1000;
+ 	ulint	next_loop_time	= ut_time_ms() + lru_sleep_time;
+-	ulint	lru_n_flushed	= 1;
++        std::pair<ulint, ulint> lru_n;
++        lru_n.first=1;
++        lru_n.second=0;
+ 
+ 	/* On server shutdown, the LRU manager thread runs through cleanup
+ 	phase to provide free pages for the master and purge threads.  */
+@@ -3734,24 +3825,33 @@ DECLARE_THREAD(buf_lru_manager)(
+ 
+ 		buf_lru_manager_sleep_if_needed(next_loop_time);
+ 
+-		buf_lru_manager_adapt_sleep_time(buf_pool, lru_n_flushed,
++                if (!srv_var5)
++		buf_lru_manager_adapt_sleep_time(i, buf_pool, lru_n,
+ 						 &lru_sleep_time);
+ 
+ 		next_loop_time = ut_time_ms() + lru_sleep_time;
+ 
+-		lru_n_flushed = buf_flush_LRU_list(buf_pool);
+-
+-		buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
+-
+-		if (lru_n_flushed) {
+-			srv_stats.buf_pool_flushed.add(lru_n_flushed);
+-
+-			MONITOR_INC_VALUE_CUMULATIVE(
+-				MONITOR_LRU_BATCH_FLUSH_TOTAL_PAGE,
+-				MONITOR_LRU_BATCH_FLUSH_COUNT,
+-				MONITOR_LRU_BATCH_FLUSH_PAGES,
+-				lru_n_flushed);
++                if (!srv_var5)
++                {                  
++                if (lru_n.second>lru_n.first)
++                {
++                  lru_n = buf_flush_single_page_from_LRU(buf_pool);
++                  if ((lru_n.first+lru_n.second)==0)
++                  {
++                     MONITOR_INC(MONITOR_LRU_SINGLE_FLUSH_FAILURE_COUNT);
++                  }
++                  if (srv_var1)
++                  fprintf(stderr,"flushing: i: %ld, single: 1, fl: %ld, ev: %ld\n", i, lru_n.first, lru_n.second);
++                }
++                else
++                {
++		  lru_n = buf_flush_LRU_list(buf_pool);
++		  if (srv_var1)
++                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld\n", i, lru_n.first, lru_n.second);
++  		  buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
++		}
+ 		}
++
+ 	}
+ 
+ 	os_atomic_decrement_ulint(&buf_lru_manager_running_threads, 1);
