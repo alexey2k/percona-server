@@ -377,6 +377,13 @@ extern ulong srv_var3;
 extern ulong srv_var4;
 extern ulong srv_var5;
 
+extern ulong srv_var6;
+extern ulong srv_var7;
+extern ulong srv_var8;
+extern ulong srv_var9;
+extern ulong srv_var10;
+
+
 /** Whether or not to flush neighbors of a block */
 extern ulong	srv_flush_neighbors;
 /** Previously requested size. Accesses protected by memory barriers. */

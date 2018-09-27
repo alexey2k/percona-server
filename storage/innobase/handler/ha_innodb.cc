@@ -21436,6 +21436,32 @@ static MYSQL_SYSVAR_ULONG(var5, srv_var5,
   NULL, NULL, 0, 0, ~0UL, 0);
 
 
+static MYSQL_SYSVAR_ULONG(var6, srv_var6,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var7, srv_var7,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var8, srv_var8,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var9, srv_var9,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var10, srv_var10,
+  PLUGIN_VAR_RQCMDARG,
+  "How deep to scan LRU to keep it clean",
+  NULL, NULL, 0, 0, ~0UL, 0);
+
+
 static MYSQL_SYSVAR_ULONG(flush_neighbors, srv_flush_neighbors,
   PLUGIN_VAR_OPCMDARG,
   "Set to 0 (don't flush neighbors from buffer pool),"
@@ -22053,6 +22079,11 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(var3),
   MYSQL_SYSVAR(var4),
   MYSQL_SYSVAR(var5),
+  MYSQL_SYSVAR(var6),
+  MYSQL_SYSVAR(var7),
+  MYSQL_SYSVAR(var8),
+  MYSQL_SYSVAR(var9),  
+  MYSQL_SYSVAR(var10),
   MYSQL_SYSVAR(flush_neighbors),
   MYSQL_SYSVAR(checksum_algorithm),
   MYSQL_SYSVAR(log_checksums),

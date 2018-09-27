@@ -1050,7 +1050,7 @@ buf_LRU_should_continue_scan(enum lru_scan_depth scan_depth, ulint limit,
 {
 	return (scan_depth == LRU_SCAN_DEPTH_ONE && scanned == 0) ||
 		scan_depth == LRU_SCAN_DEPTH_ALL ||
-		scanned < limit;
+		(scan_depth == LRU_SCAN_DEPTH_THRESHOLD && scanned < limit);
 }
 
 /******************************************************************//**
@@ -1124,13 +1124,14 @@ buf_LRU_free_from_common_LRU_list(
 {
 	ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
-	ulint		scanned = 0;
+	ulint		scanned = 0;	
 	bool		freed = false;
 
 	for (buf_page_t* bpage = buf_pool->lru_scan_itr.start();
 	     bpage != NULL
 	     && !freed
-	     && buf_LRU_should_continue_scan(scan_depth, srv_LRU_scan_depth, scanned);
+//	     && buf_LRU_should_continue_scan(scan_depth, srv_LRU_scan_depth, scanned);
+             && buf_LRU_should_continue_scan(scan_depth, srv_var2, scanned);
 	     ++scanned, bpage = buf_pool->lru_scan_itr.get()) {
 
 		buf_page_t*	prev = UT_LIST_GET_PREV(LRU, bpage);
@@ -1163,7 +1164,14 @@ buf_LRU_free_from_common_LRU_list(
 		ut_ad(!mutex_own(mutex));
 
 		if (freed)
+		{
+		        MONITOR_INC_VALUE_CUMULATIVE(
+                        MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+                        MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT,
+                        MONITOR_LRU_SINGLE_EVICT_CLEAN_PAGES,
+                        1);
 			break;
+		}
 	}
 
 	if (scanned) {
@@ -1173,6 +1181,8 @@ buf_LRU_free_from_common_LRU_list(
 			MONITOR_LRU_SEARCH_SCANNED_PER_CALL,
 			scanned);
 	}
+        if (srv_var9)
+           fprintf(stderr,"i: %lu, scanned: %lu\n", buf_pool->instance_no, scanned);
 
 	return(freed);
 }
@@ -1517,19 +1527,33 @@ loop:
 
 	MONITOR_INC( MONITOR_LRU_GET_FREE_LOOPS );
 
+
+        if (!n_iterations)
+                 os_atomic_increment_ulint(&buf_pool->waiters,1);
+
+
 	if (!last_lru_page_evict_failed) {
-		last_lru_page_evict_failed =
-			!buf_LRU_scan_and_free_block(buf_pool,
-						     LRU_SCAN_DEPTH_ONE);
+	
+		if (srv_var4==1)
+		{
+			last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_THRESHOLD);
+		}
+		else
+		{
+	        	last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_ONE);
+		}
+		
 		if (!last_lru_page_evict_failed) {
 			n_iterations++;
+	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
+			MONITOR_INC( MONITOR_LRU_GET_FREE_OK1);
 			goto loop;
 		} else {
+		        MONITOR_INC( MONITOR_LRU_GET_FREE_OK2);
 			os_event_set(buf_pool->lru_flush_requested);
 		}
 	}
-
-	freed = false;
+        freed=false;
 
 	os_rmb;
 	if (srv_empty_free_list_algorithm == SRV_EMPTY_FREE_LIST_BACKOFF
@@ -1539,8 +1563,6 @@ loop:
 
 		ut_ad(buf_lru_manager_running_threads
 		      == srv_buf_pool_instances);
-               if (!n_iterations)
-                 os_atomic_increment_ulint(&buf_pool->waiters,1);
 		/* Backoff to minimize the free list mutex contention while the
 		free list is empty */
 		ulint	priority = srv_current_thread_priority;
@@ -1598,6 +1620,7 @@ loop:
 		      || (srv_shutdown_state != SRV_SHUTDOWN_NONE
 			  && srv_shutdown_state != SRV_SHUTDOWN_CLEANUP));
 	}
+//#if 0
 	if (buf_pool->init_flush[BUF_FLUSH_LRU]
 	    && srv_use_doublewrite_buf
 	    && buf_dblwr != NULL) {
@@ -1610,7 +1633,7 @@ loop:
 		buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
 		goto loop;
 	}
-
+//#endif
 	os_rmb;
 
 	if (DBUG_EVALUATE_IF("simulate_recovery_lack_of_pages", true, false)

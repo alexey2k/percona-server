@@ -1687,9 +1687,12 @@ buf_flush_LRU_list_batch(
 
 	withdraw_depth = buf_get_withdraw_depth(buf_pool);
 
+        ulint custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
+        ulint custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+
 	for (bpage = UT_LIST_GET_LAST(buf_pool->LRU);
-	     bpage != NULL && count + evict_count < max
-	     && free_len < srv_LRU_scan_depth + withdraw_depth
+	     bpage != NULL && ((count + evict_count) < custom_max)
+	     && free_len < custom_LRU_scan_depth + withdraw_depth
 	     && lru_len > BUF_LRU_MIN_LEN;
 	     ++scanned,
 	     bpage = buf_pool->lru_hp.get()) {
@@ -1704,7 +1707,7 @@ buf_flush_LRU_list_batch(
 		if (!failed_acquire && buf_flush_ready_for_replace(bpage)) {
 			/* block is ready for eviction i.e., it is
 			clean and is not IO-fixed or buffer fixed. */
-			if (buf_LRU_free_page(bpage, true)) {
+			if (srv_var10 && buf_LRU_free_page(bpage, true)) {
 				++evict_count;
 				mutex_enter(&buf_pool->LRU_list_mutex);
 			} else {
@@ -1718,7 +1721,7 @@ buf_flush_LRU_list_batch(
 			free list in IO completion routine. */
 			mutex_exit(block_mutex);
 			buf_flush_page_and_try_neighbors(
-				bpage, BUF_FLUSH_LRU, max, &count);
+				bpage, BUF_FLUSH_LRU, custom_max, &count);
 		} else if (failed_acquire) {
 			ut_ad(buf_pool->lru_hp.is_hp(prev));
 		} else {
@@ -1733,6 +1736,10 @@ buf_flush_LRU_list_batch(
 
 		free_len = UT_LIST_GET_LEN(buf_pool->free);
 		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
+		
+//                custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
+                custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)) : max; 
+
 	}
 
 	buf_pool->lru_hp.set(NULL);
@@ -1770,6 +1777,11 @@ buf_flush_LRU_list_batch(
 			MONITOR_LRU_BATCH_SCANNED_PER_CALL,
 			scanned);
 	}
+        if (srv_var8)
+         fprintf(stderr,"i: %lu, c_max: %lu, c_depth: %lu, scanned: %lu, f: %lu, e: %lu, free_len: %lu, waiters: %lu, n_iter: %lu\n",
+                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, scanned, count, evict_count, free_len, 
+                  os_atomic_increment_ulint(&buf_pool->waiters,0), 
+                  os_atomic_increment_ulint(&buf_pool->n_iter,0));
 
 	return(std::make_pair(count, evict_count));
 }
@@ -1883,6 +1895,7 @@ buf_do_flush_list_batch(
 			MONITOR_FLUSH_BATCH_PAGES,
 			count);
 	}
+        buf_pool->flush_list_flushed=count;
 
 	return(count);
 }

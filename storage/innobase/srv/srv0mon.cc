@@ -429,8 +429,22 @@ static monitor_info_t	innodb_counter_info[] =
 	 "Total sleep waits in LRU get free.",
 	 MONITOR_NONE,
 	 MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK},
+
+	{"buffer_LRU_get_free_ok1", "buffer",
+	 "Total sleep waits in LRU get free.",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK1},
 	 
+
+	{"buffer_LRU_get_free_ok2", "buffer",
+	 "Total sleep waits in LRU get free.",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK2},
 	 
+	{"buffer_LRU_get_free_ok3", "buffer",
+	 "Total sleep waits in LRU get free.",
+	 MONITOR_NONE,
+	 MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK3},
 
 	{"buffer_flush_avg_page_rate", "buffer",
 	 "Average number of pages at which flushing is happening",
@@ -601,6 +615,23 @@ static monitor_info_t	innodb_counter_info[] =
          "Pages queued as an LRU single eviction",
          MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE,
          MONITOR_LRU_SINGLE_EVICT_PAGES},
+
+       /* Cumulative counter for LRU single page evicted */
+        {"buffer_LRU_single_evict_clean_total_pages", "buffer",
+         "Total pages evicted as part of LRU single eviction",
+         MONITOR_SET_OWNER, MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT,
+         MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE},
+
+        {"buffer_LRU_single_evict_clean", "buffer",
+         "Number of LRU single eviction",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT},
+
+        {"buffer_LRU_single_evict_clean_pages", "buffer",
+         "Pages queued as an LRU single eviction",
+         MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+         MONITOR_LRU_SINGLE_EVICT_CLEAN_PAGES},
+
 
 	{"buffer_LRU_single_flush_failure_count", "Buffer",
 	 "Number of times attempt to flush a single page from LRU failed",
