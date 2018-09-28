@@ -1386,7 +1386,7 @@ the error log if more than two seconds have been spent already.
 */
 static
 void
-buf_LRU_handle_lack_of_free_blocks(ulint n_iterations, ulint started_ms,
+buf_LRU_handle_lack_of_free_blocks(ulint instance_no, ulint n_iterations, ulint started_ms,
 				   ulint flush_failures,
 				   bool *mon_value_was,
 				   bool *started_monitor)
@@ -1401,7 +1401,7 @@ buf_LRU_handle_lack_of_free_blocks(ulint n_iterations, ulint started_ms,
 	    && (current_ms > last_printout_ms + 2000)
 	    && srv_buf_pool_old_size == srv_buf_pool_size) {
 
-		ib::warn() << "Difficult to find free blocks in the buffer pool"
+		ib::warn() << "Difficult to find free blocks in the buffer pool:" << instance_no << 
 			" (" << n_iterations << " search iterations)! "
 			   << flush_failures << " failed attempts to"
 			" flush a page! Consider increasing the buffer pool"
@@ -1423,8 +1423,8 @@ buf_LRU_handle_lack_of_free_blocks(ulint n_iterations, ulint started_ms,
 		last_printout_ms = current_ms;
 		*mon_value_was = srv_print_innodb_monitor;
 		*started_monitor = true;
-		srv_print_innodb_monitor = true;
-		os_event_set(srv_monitor_event);
+//		srv_print_innodb_monitor = true;
+//		os_event_set(srv_monitor_event);
 	}
 
 }
@@ -1481,9 +1481,21 @@ buf_LRU_get_free_block(
 	uintmax_t current_time = ut_time_us(NULL);
 	mutex_enter(&buf_pool->flush_state_mutex);
 	if (buf_pool->last_interval_start + 1000000 < current_time) {
-		fprintf(stderr, "Last no smaller than 1s interval demand is %llu for instance %lu\n",
-			buf_pool->last_interval_free_page_demand,
-			buf_pool_index(buf_pool));
+	      if (srv_var12)
+		fprintf(stderr, "Last no smaller than 1s interval demand is %llu(%llu) for instance %lu, get_free_n %lu, %lu\n",
+			(long long unsigned int )buf_pool->last_interval_free_page_demand,
+			(long long unsigned int )buf_pool->last_interval_free_page_demand_old,
+			buf_pool->instance_no,
+			MONITOR_VALUE(MONITOR_LRU_GET_FREE_OK),
+			buf_pool->last_interval_free_page_evict);
+		buf_pool->last_interval_free_page_demand_old = buf_pool->last_interval_free_page_demand;
+		buf_pool->last_interval_free_page_evict_old=buf_pool->last_interval_free_page_evict;
+		buf_pool->last_interval_free_page_old=buf_pool->last_interval_free_page;
+                buf_pool->flush_list_flushed_old=buf_pool->flush_list_flushed;
+                buf_pool->flush_list_flushed=0;
+
+                buf_pool->last_interval_free_page_evict=0;
+                buf_pool->last_interval_free_page=0;
 		buf_pool->last_interval_free_page_demand = 1;
 		buf_pool->last_interval_start = current_time;
 	} else {
@@ -1534,6 +1546,7 @@ loop:
 		}
 		else
 		{
+		  os_atomic_increment_ulint(&buf_pool->last_interval_free_page,1);
 		  MONITOR_INC( MONITOR_LRU_GET_FREE_OK );
 		}
 		return(block);
@@ -1545,8 +1558,6 @@ loop:
 	MONITOR_INC( MONITOR_LRU_GET_FREE_LOOPS );
 
 
-        if (!n_iterations)
-                 os_atomic_increment_ulint(&buf_pool->waiters,1);
 
 
 	if (!last_lru_page_evict_failed) {
@@ -1561,15 +1572,21 @@ loop:
 		}
 		
 		if (!last_lru_page_evict_failed) {
-			n_iterations++;
-	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
+//			n_iterations++;
+//	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
+	                os_atomic_increment_ulint(&buf_pool->last_interval_free_page_evict,1);   
 			MONITOR_INC( MONITOR_LRU_GET_FREE_OK1);
 			goto loop;
 		} else {
+
 		        MONITOR_INC( MONITOR_LRU_GET_FREE_OK2);
+		                if (!n_iterations)
+                 os_atomic_increment_ulint(&buf_pool->waiters,1);
+
 			os_event_set(buf_pool->lru_flush_requested);
 		}
 	}
+
         freed=false;
 
 	os_rmb;
@@ -1614,7 +1631,7 @@ loop:
 				: FREE_LIST_BACKOFF_LOW_PRIO_DIVIDER));
 		}
 
-		buf_LRU_handle_lack_of_free_blocks(n_iterations, started_ms,
+		buf_LRU_handle_lack_of_free_blocks(buf_pool->instance_no,n_iterations, started_ms,
 						   flush_failures,
 						   &mon_value_was,
 						   &started_monitor);
@@ -1682,7 +1699,7 @@ loop:
 		goto loop;
 	}
 
-	buf_LRU_handle_lack_of_free_blocks(n_iterations, started_ms,
+	buf_LRU_handle_lack_of_free_blocks(buf_pool->instance_no,n_iterations, started_ms,
 					   flush_failures, &mon_value_was,
 					   &started_monitor);
 

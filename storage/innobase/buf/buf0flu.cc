@@ -1687,13 +1687,45 @@ buf_flush_LRU_list_batch(
 
 	withdraw_depth = buf_get_withdraw_depth(buf_pool);
 
-        ulint custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
-        ulint custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
-        ulint custom_scan_limit= srv_var11 ? srv_var11 : srv_LRU_scan_depth;
+        ulint custom_max;
+        
+        ulint waiters= os_atomic_increment_ulint(&buf_pool->waiters,0);
+        ulint n_iter= os_atomic_increment_ulint(&buf_pool->n_iter,0);
+        
+        ulint custom_LRU_scan_depth= srv_var6 ? srv_io_capacity-buf_pool->flush_list_flushed_old : srv_LRU_scan_depth;
+//        ulint custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+         if ( buf_pool->last_interval_free_page_demand_old > (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old))
+         {
+            custom_max= srv_var7 ? ( buf_pool->last_interval_free_page_demand_old - buf_pool->last_interval_free_page_old - buf_pool->last_interval_free_page_evict_old) :
+                                                  buf_pool->last_interval_free_page_demand_old;
+        } else { custom_max=  srv_var7 ? (waiters+1) : buf_pool->last_interval_free_page_demand_old; }
+	
+                                                           
+        ulint custom_scan_limit= std::min((srv_var11 ? (buf_pool->last_interval_free_page_demand_old +  n_iter) : 
+                                               srv_LRU_scan_depth), custom_LRU_scan_depth);
+
+        custom_max= waiters ? custom_scan_limit : custom_max;
+
+//	     bpage != NULL && ((count + evict_count) < custom_max)
+//	     && free_len < custom_LRU_scan_depth + withdraw_depth
+
+
+
+
+        if (srv_var8)
+         fprintf(stderr,"st:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, free: %lu, wtrs: %lu, n_iter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evict1s: %lu, fflshd: %lu\n",
+                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, free_len, 
+                  waiters,
+                  n_iter,
+                  buf_pool->last_interval_free_page_demand_old,
+                  (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old),
+                  buf_pool->last_interval_free_page_old,
+                  buf_pool->last_interval_free_page_evict_old,
+                  buf_pool->flush_list_flushed_old);
+
 
 	for (bpage = UT_LIST_GET_LAST(buf_pool->LRU);
-	     bpage != NULL && ((count + evict_count) < custom_max)
-	     && free_len < custom_LRU_scan_depth + withdraw_depth
+	     bpage != NULL &&  count < custom_max 
 	     && lru_len > BUF_LRU_MIN_LEN && scanned< custom_scan_limit;
 	     ++scanned,
 	     bpage = buf_pool->lru_hp.get()) {
@@ -1737,10 +1769,11 @@ buf_flush_LRU_list_batch(
 
 		free_len = UT_LIST_GET_LEN(buf_pool->free);
 		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
+
 		
 //                custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
-                custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
-                custom_scan_limit= srv_var11 ? srv_var11 : srv_LRU_scan_depth;
+                //custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+                //custom_scan_limit= srv_var11 ? buf_pool->last_interval_free_page_demand : srv_LRU_scan_depth;
 	}    
 
 	buf_pool->lru_hp.set(NULL);
@@ -1779,10 +1812,15 @@ buf_flush_LRU_list_batch(
 			scanned);
 	}
         if (srv_var8)
-         fprintf(stderr,"i: %lu, c_max: %lu, c_depth: %lu, scanned: %lu, f: %lu, e: %lu, free_len: %lu, waiters: %lu, n_iter: %lu\n",
-                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, scanned, count, evict_count, free_len, 
-                  os_atomic_increment_ulint(&buf_pool->waiters,0), 
-                  os_atomic_increment_ulint(&buf_pool->n_iter,0));
+         fprintf(stderr,"en:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, free: %lu, wtrs: %lu, n_iter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evict1s: %lu, fflshd: %lu\n",
+                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, free_len, 
+                  waiters,
+                  n_iter,
+                  buf_pool->last_interval_free_page_demand_old,
+                  (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old),
+                  buf_pool->last_interval_free_page_old,
+                  buf_pool->last_interval_free_page_evict_old,
+                  buf_pool->flush_list_flushed_old);
 
 	return(std::make_pair(count, evict_count));
 }
@@ -1896,7 +1934,7 @@ buf_do_flush_list_batch(
 			MONITOR_FLUSH_BATCH_PAGES,
 			count);
 	}
-        buf_pool->flush_list_flushed=count;
+        buf_pool->flush_list_flushed=buf_pool->flush_list_flushed+count;
 
 	return(count);
 }
@@ -3675,6 +3713,7 @@ DECLARE_THREAD(buf_lru_manager)(
         lru_n.first=1;
         lru_n.second=0;
 
+        ulint waiters;
 	/* On server shutdown, the LRU manager thread runs through cleanup
 	phase to provide free pages for the master and purge threads.  */
 	while (srv_shutdown_state == SRV_SHUTDOWN_NONE
@@ -3682,14 +3721,23 @@ DECLARE_THREAD(buf_lru_manager)(
 
 		ut_d(buf_flush_page_cleaner_disabled_loop());
 
-		os_event_wait(buf_pool->lru_flush_requested);
+loop:
+		if (os_event_wait_time(buf_pool->lru_flush_requested, 10000) == OS_SYNC_TIME_EXCEEDED) {
+                waiters=os_atomic_decrement_ulint(&buf_pool->waiters,0);
+                if (srv_var1)
+                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld, waiters: %lu \n", i, lru_n.first, lru_n.second, waiters);
+
+		   if (waiters == 0 )
+		   goto loop;
+		}
+		
 
 		lru_n = buf_flush_LRU_list(buf_pool);
 
 		buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
 
-                if (srv_var1)
-                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld\n", i, lru_n.first, lru_n.second);
+//                if (srv_var1)
+ //                 fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld\n", i, lru_n.first, lru_n.second);
 
 		os_event_reset(buf_pool->lru_flush_requested);
 
