@@ -1185,7 +1185,7 @@ buf_LRU_free_from_common_LRU_list(
 			MONITOR_LRU_SEARCH_SCANNED_PER_CALL,
 			scanned);
 	}
-        if (srv_var9)
+        if (srv_var9 && scanned)
            fprintf(stderr,"i: %lu, scanned: %lu\n", buf_pool->instance_no, scanned);
 
 	return(freed);
@@ -1546,9 +1546,10 @@ loop:
 		}
 		else
 		{
-		  os_atomic_increment_ulint(&buf_pool->last_interval_free_page,1);
+
 		  MONITOR_INC( MONITOR_LRU_GET_FREE_OK );
 		}
+		  os_atomic_increment_ulint(&buf_pool->last_interval_free_page,1);
 		return(block);
 	}
 
