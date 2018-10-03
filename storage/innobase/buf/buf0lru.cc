@@ -1127,10 +1127,8 @@ buf_LRU_free_from_common_LRU_list(
 
 	ulint		scanned_with_locked = 0;
         ulint           scanned_dirty = 0;
-
 	ulint		scanned = 0;
 	bool		freed = false;
-	ulint cse=0;
 
 	for (buf_page_t* bpage = buf_pool->lru_scan_itr.start();
 	     bpage != NULL
@@ -1157,8 +1155,6 @@ buf_LRU_free_from_common_LRU_list(
 
 		if (lock_failed)
 			continue;
-
-
 
                 if (bpage->oldest_modification != 0)
                    scanned_dirty++;
