@@ -193,7 +193,8 @@ Returns TRUE if the file page block is immediately suitable for replacement,
 i.e., the transition FILE_PAGE => NOT_USED allowed. The caller must hold the
 LRU list and block mutexes.
 @return TRUE if can replace immediately */
-ibool
+//ibool
+ulint
 buf_flush_ready_for_replace(
 /*========================*/
 	buf_page_t*	bpage);	/*!< in: buffer control block, must be

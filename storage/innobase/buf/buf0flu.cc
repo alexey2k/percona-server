@@ -560,7 +560,8 @@ Returns TRUE if the file page block is immediately suitable for replacement,
 i.e., the transition FILE_PAGE => NOT_USED allowed. The caller must hold the
 LRU list and block mutexes.
 @return TRUE if can replace immediately */
-ibool
+//ibool
+ulint 
 buf_flush_ready_for_replace(
 /*========================*/
 	buf_page_t*	bpage)	/*!< in: buffer control block, must be
@@ -574,7 +575,6 @@ buf_flush_ready_for_replace(
 	ut_ad(bpage->in_LRU_list);
 
 	if (buf_page_in_file(bpage)) {
-
 		return(bpage->oldest_modification == 0
 		       && bpage->buf_fix_count == 0
 		       && buf_page_get_io_fix(bpage) == BUF_IO_NONE);
@@ -1693,24 +1693,22 @@ buf_flush_LRU_list_batch(
         ulint n_iter= os_atomic_increment_ulint(&buf_pool->n_iter,0);
         ulint lru_capa=srv_max_io_capacity/srv_buf_pool_instances;
         
-        ulint custom_LRU_scan_depth= srv_var6 ? (lru_capa > buf_pool->flush_list_flushed_old ? lru_capa - buf_pool->flush_list_flushed_old : 0) : srv_LRU_scan_depth;
-//        ulint custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
+        ulint custom_LRU_scan_depth= srv_var6 ? (lru_capa > buf_pool->flush_list_flushed_old ? lru_capa - buf_pool->flush_list_flushed_old : 100) : srv_LRU_scan_depth;
+        
          if ( buf_pool->last_interval_free_page_demand_old > (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old))
          {
             custom_max= srv_var7 ? ( buf_pool->last_interval_free_page_demand_old - buf_pool->last_interval_free_page_old - buf_pool->last_interval_free_page_evict_old) :
                                                   buf_pool->last_interval_free_page_demand_old;
-        } else { custom_max=  srv_var7 ? (waiters+1) : buf_pool->last_interval_free_page_demand_old; }
-	
-                                                           
-        ulint custom_scan_limit= std::min((srv_var11 ? (buf_pool->last_interval_free_page_demand_old +  n_iter) : 
-                                               srv_LRU_scan_depth), custom_LRU_scan_depth);
+         } 
+         else 
+         { 
+            custom_max=  srv_var7 ? (waiters+1) : buf_pool->last_interval_free_page_demand_old; 
+         }
+            
+        ulint custom_scan_limit= std::max((srv_var11 ? (buf_pool->last_interval_free_page_demand_old +  n_iter) : srv_LRU_scan_depth), 
+                                          custom_LRU_scan_depth);
 
         custom_max= waiters ? custom_scan_limit : custom_max;
-
-//	     bpage != NULL && ((count + evict_count) < custom_max)
-//	     && free_len < custom_LRU_scan_depth + withdraw_depth
-
-
 
 
         if (srv_var8)
@@ -1724,6 +1722,8 @@ buf_flush_LRU_list_batch(
                   buf_pool->last_interval_free_page_evict_old,
                   buf_pool->flush_list_flushed_old);
 
+//	     bpage != NULL && ((count + evict_count) < custom_max)
+//	     && free_len < custom_LRU_scan_depth + withdraw_depth
 
 	for (bpage = UT_LIST_GET_LAST(buf_pool->LRU);
 	     bpage != NULL &&  (count+evict_count) < custom_max 

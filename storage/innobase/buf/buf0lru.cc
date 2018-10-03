@@ -1125,18 +1125,21 @@ buf_LRU_free_from_common_LRU_list(
 {
 	ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
-	ulint		scanned = 0;	
+	ulint		scanned_with_locked = 0;
+        ulint           scanned_dirty = 0;
+
+	ulint		scanned = 0;
 	bool		freed = false;
+	ulint cse=0;
 
 	for (buf_page_t* bpage = buf_pool->lru_scan_itr.start();
 	     bpage != NULL
 	     && !freed
-//	     && buf_LRU_should_continue_scan(scan_depth, srv_LRU_scan_depth, scanned);
-             && buf_LRU_should_continue_scan(scan_depth, srv_var2, scanned);
-//	     && buf_LRU_should_continue_scan(scan_depth,
-//					     BUF_LRU_SEARCH_SCAN_THRESHOLD,
-//					     scanned);
-	     ++scanned, bpage = buf_pool->lru_scan_itr.get()) {
+             && buf_LRU_should_continue_scan(scan_depth, srv_var2, scanned_dirty);
+	     //&& buf_LRU_should_continue_scan(scan_depth,
+	     //				     BUF_LRU_SEARCH_SCAN_THRESHOLD,
+	     //				     scanned);
+	     bpage = buf_pool->lru_scan_itr.get()) {
 
 		buf_page_t*	prev = UT_LIST_GET_PREV(LRU, bpage);
 		BPageMutex*	mutex = buf_page_get_mutex(bpage);
@@ -1148,12 +1151,30 @@ buf_LRU_free_from_common_LRU_list(
 
 		unsigned	accessed = buf_page_is_accessed(bpage);
 
-		mutex_enter(mutex);
+		const int lock_failed = mutex_enter_nowait(mutex);
+
+		scanned_with_locked++;
+
+		if (lock_failed)
+			continue;
+
+
+
+                if (bpage->oldest_modification != 0)
+                   scanned_dirty++;
+
+  		scanned++;
 
 		if (buf_flush_ready_for_replace(bpage)) {
-
 			freed = buf_LRU_free_page(bpage, true);
 		}
+//		else
+//		{
+//		   if (srv_var9)
+//		   {
+//		      fprintf(stderr,"i: %lu, scanned: %lu scanned_with_locked: %lu, cse: %lu \n", buf_pool->instance_no, scanned, scanned_with_locked, cse);
+//		   }
+//		}
 
 		if (!freed)
 			mutex_exit(mutex);
@@ -1185,8 +1206,8 @@ buf_LRU_free_from_common_LRU_list(
 			MONITOR_LRU_SEARCH_SCANNED_PER_CALL,
 			scanned);
 	}
-        if (srv_var9 && scanned)
-           fprintf(stderr,"i: %lu, scanned: %lu\n", buf_pool->instance_no, scanned);
+        if (srv_var9 && scanned>1)
+           fprintf(stderr,"i: %lu, scanned: %lu scanned_with_locked: %lu scanned_dirty: %lu\n", buf_pool->instance_no, scanned, scanned_with_locked, scanned_dirty);
 
 	return(freed);
 }
@@ -1626,7 +1647,7 @@ loop:
 			if (b > MAX_FREE_LIST_BACKOFF_SLEEP) {
 				b = MAX_FREE_LIST_BACKOFF_SLEEP;
 			}
-			                os_atomic_increment_ulint(&buf_pool->n_iter,1);
+	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
 			os_thread_sleep(b / (priority
 				? FREE_LIST_BACKOFF_HIGH_PRIO_DIVIDER
 				: FREE_LIST_BACKOFF_LOW_PRIO_DIVIDER));
