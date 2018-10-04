@@ -46,6 +46,15 @@ row_purge_node_create(
 	mem_heap_t*	heap)
 	MY_ATTRIBUTE((warn_unused_result));
 
+purge_node_t*
+row_truncate_node_create(
+/*==================*/
+       que_thr_t*      parent,         /*!< in: parent node, i.e., a
+                                       thr node */
+       mem_heap_t*     heap)           /*!< in: memory heap where created */
+       MY_ATTRIBUTE((warn_unused_result));
+
+
 /***********************************************************//**
 Determines if it is possible to remove a secondary index entry.
 Removal is possible if the secondary index entry does not refer to any
@@ -78,6 +87,14 @@ row_purge_step(
 	que_thr_t*	thr)	/*!< in: query thread */
 	MY_ATTRIBUTE((warn_unused_result));
 
+que_thr_t*
+row_truncate_step(
+/*===========*/
+	que_thr_t*	thr)	/*!< in: query thread */
+	__attribute__((nonnull, warn_unused_result));
+
+struct purge_iter_t;
+
 /* Purge node structure */
 
 struct purge_node_t{
@@ -88,6 +105,10 @@ struct purge_node_t{
 	ib_vector_t*    undo_recs;/*!< Undo recs to purge */
 
 	undo_no_t	undo_no;/*!< undo number of the record */
+
+        ib_vector_t*    rsegs;
+
+        purge_iter_t*   limit;
 
 	ulint		rec_type;/*!< undo log record type: TRX_UNDO_INSERT_REC,
 				... */

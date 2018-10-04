@@ -22003,6 +22003,21 @@ static MYSQL_SYSVAR_BOOL(encrypt_online_alter_logs,
   "Encrypt online alter logs.",
   NULL, NULL, FALSE);
 
+static MYSQL_SYSVAR_ULONG(trace_purging,
+  srv_trace_purging, PLUGIN_VAR_RQCMDARG,
+  "If true, trace purging in the error log",
+   NULL, NULL, 0, 0,  ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var1,
+  srv_var1, PLUGIN_VAR_RQCMDARG,
+  "If true, trace purging in the error log",
+   NULL, NULL, 0, 0,  ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var2,
+  srv_var2, PLUGIN_VAR_RQCMDARG,
+  "If true, trace purging in the error log",
+   NULL, NULL, 0, 0,  ~0UL, 0);
+
 static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(api_trx_level),
   MYSQL_SYSVAR(api_bk_commit_interval),
@@ -22167,6 +22182,9 @@ static struct st_mysql_sys_var* innobase_system_variables[]= {
   MYSQL_SYSVAR(cleaner_max_lru_time),
   MYSQL_SYSVAR(cleaner_max_flush_time),
 #endif /* defined UNIV_DEBUG || defined UNIV_PERF_DEBUG */
+  MYSQL_SYSVAR(trace_purging),
+  MYSQL_SYSVAR(var1),
+  MYSQL_SYSVAR(var2),
   MYSQL_SYSVAR(status_output),
   MYSQL_SYSVAR(status_output_locks),
   MYSQL_SYSVAR(cleaner_lsn_age_factor),

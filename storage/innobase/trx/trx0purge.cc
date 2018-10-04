@@ -177,6 +177,36 @@ TrxUndoRsegsIterator::set_next()
 	return(page_size);
 }
 
+/*******************************************************************//**
+Wait for pending purge jobs to complete. */
+static
+void
+trx_purge_wait_for_workers_to_complete(
+/*===================================*/
+	trx_purge_t*	purge_sys)	/*!< in: purge instance */
+{
+	ulint		n_submitted = purge_sys->n_submitted;
+
+	/* Ensure that the work queue empties out. */
+	while (!os_compare_and_swap_ulint(
+			&purge_sys->n_completed, n_submitted, n_submitted)) {
+
+		if (srv_get_task_queue_length() > 0) {
+			srv_release_threads(SRV_WORKER, 1);
+		}
+
+		os_thread_yield();
+	}
+
+	/* None of the worker threads should be doing any work. */
+	ut_a(purge_sys->n_submitted == purge_sys->n_completed);
+
+	/* There should be no outstanding tasks as long
+	as the worker threads are active. */
+	ut_a(srv_get_task_queue_length() == 0);
+}
+
+
 /****************************************************************//**
 Builds a purge 'query' graph. The actual purge is performed by executing
 this query graph.
@@ -207,6 +237,38 @@ trx_purge_graph_build(
 		thr = que_thr_create(fork, heap, prebuilt);
 
 		thr->child = row_purge_node_create(thr, heap);
+	}
+
+	return(fork);
+}
+
+static
+que_t*
+trx_truncate_graph_build(
+/*=====================*/
+	trx_t*		trx,			/*!< in: transaction */
+	ulint		n_purge_threads)	/*!< in: number of purge
+						threads */
+{
+	ulint		i;
+	mem_heap_t*	heap;
+	que_fork_t*	fork;
+
+	heap = mem_heap_create(512);
+	fork = que_fork_create(NULL, NULL, QUE_FORK_TRUNCATE, heap);
+	fork->trx = trx;
+
+	for (i = 0; i < n_purge_threads; ++i) {
+		que_thr_t*	thr;
+
+                row_prebuilt_t* prebuilt;
+
+                prebuilt = static_cast<row_prebuilt_t*>(
+                        mem_heap_zalloc(heap, sizeof(*prebuilt)));
+
+		thr = que_thr_create(fork, heap, prebuilt);
+
+		thr->child = row_truncate_node_create(thr, heap);
 	}
 
 	return(fork);
@@ -261,6 +323,8 @@ trx_purge_sys_create(
 	purge_sys->trx->op_info = "purge trx";
 
 	purge_sys->query = trx_purge_graph_build(
+		purge_sys->trx, n_purge_threads);
+	purge_sys->truncate = trx_truncate_graph_build(
 		purge_sys->trx, n_purge_threads);
 
 	new(&purge_sys->view) ReadView();
@@ -531,7 +595,7 @@ trx_purge_free_segment(
 
 /********************************************************************//**
 Removes unnecessary history data from a rollback segment. */
-static
+//static
 void
 trx_purge_truncate_rseg_history(
 /*============================*/
@@ -549,6 +613,14 @@ trx_purge_truncate_rseg_history(
 	const bool	noredo		= trx_sys_is_noredo_rseg_slot(
 		rseg->id);
 
+        ulint           loop_count=0;
+
+        if (srv_trace_purging>3)
+        {
+          fprintf(stderr,"trx_purge_truncate_rseg_history0: rseg_id:%ld, loop:%ld limit:%ld,  rseg_his_len:%ld\n",
+          rseg->id, loop_count,limit->trx_no,trx_sys->rseg_history_len);
+        }
+
 	mtr_start(&mtr);
 	if (noredo) {
 		mtr.set_log_mode(MTR_LOG_NO_REDO);
@@ -561,6 +633,12 @@ trx_purge_truncate_rseg_history(
 	hdr_addr = trx_purge_get_log_from_hist(
 		flst_get_last(rseg_hdr + TRX_RSEG_HISTORY, &mtr));
 loop:
+        if (srv_trace_purging>3)
+        {
+          fprintf(stderr,"trx_purge_truncate_rseg_history1: rseg_id:%ld, loop:%ld limit:%ld, rseg_his_len:%ld\n",
+          rseg->id, loop_count,limit->trx_no,trx_sys->rseg_history_len);
+        }
+
 	if (hdr_addr.page == FIL_NULL) {
 
 		mutex_exit(&(rseg->mutex));
@@ -1208,6 +1286,143 @@ trx_purge_initiate_truncate(
 			DBUG_SUICIDE(););
 }
 
+
+
+
+static
+void
+trx_purge_truncate_history_rseg(
+        ulint   n_purge_threads,        /*!< in: number of purge tasks
+                                        to submit to the work queue */
+        purge_iter_t*           limit,
+        trx_rseg_t**       rseg_array)
+{
+       que_thr_t*      thr;
+       ulint           i,j;
+
+        ulint trx_purge_truncate_history_start_ms = ut_time_ms();
+        ulint           n_thrs = UT_LIST_GET_LEN(purge_sys->truncate->thrs);
+
+
+        /* Debug code to validate some pre-requisites and reset done flag. */
+        for (thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs), i = 0;
+             thr != NULL && i < n_purge_threads;
+             thr = UT_LIST_GET_NEXT(thrs, thr), ++i) {
+
+                purge_node_t*           node;
+
+                /* Get the purge node. */
+                node = (purge_node_t*) thr->child;
+
+                ut_a(que_node_get_type(node) == QUE_NODE_TRUNCATE);
+                ut_a(node->rsegs == NULL);
+                ut_a(node->done);
+
+                node->limit = limit;
+                node->done = FALSE;
+       }
+
+       ut_a(i == n_purge_threads);
+
+       thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
+       ut_a(n_thrs > 0 && thr != NULL);
+
+	for (j = 0; j < TRX_SYS_N_RSEGS; ++j) {
+               purge_node_t*           node;
+
+               i=TRX_SYS_N_RSEGS-j-1;
+
+//               trx_rseg_t*     rseg = trx_sys->rseg_array[i];
+                 trx_rseg_t*     rseg = ((trx_rseg_t**)rseg_array)[i];
+
+               if (rseg == NULL) {
+
+                       continue;
+               }
+
+               ut_a(rseg->id == i);
+               ut_a(!thr->is_active);
+
+               /* Get the purge node. */
+               node = (purge_node_t*) thr->child;
+
+               if (node->rsegs == NULL) {
+                       node->rsegs = ib_vector_create(
+                               ib_heap_allocator_create(node->heap),
+                               sizeof(trx_rseg_t*),
+                               TRX_SYS_N_RSEGS);
+               } else {
+                       ut_a(!ib_vector_is_empty(node->rsegs));
+               }
+
+               ib_vector_push(node->rsegs, &rseg);
+
+               thr = UT_LIST_GET_NEXT(thrs, thr);
+
+               if (!(i % n_purge_threads)) {
+                       thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
+               }
+
+               ut_a(thr != NULL);
+       }
+
+       ut_a(purge_sys->n_submitted == purge_sys->n_completed);
+       if (n_purge_threads > 1) {
+               /* Submit the tasks to the work queue. */
+               thr = NULL;
+               for (i = 0; i < n_purge_threads - 1; ++i) {
+                       thr = que_fork_scheduler_round_robin(
+                               purge_sys->truncate, thr);
+
+                       ut_a(thr != NULL);
+
+                       srv_que_task_enqueue_low(thr);
+               }
+               if (srv_trace_purging>0) {
+                       fprintf(stderr,
+                               "trx_purge_truncate_history: submitted1 time:%ld\n",
+                               ut_time_ms() - trx_purge_truncate_history_start_ms);
+               }
+
+               thr = que_fork_scheduler_round_robin(purge_sys->truncate, thr);
+               ut_a(thr != NULL);
+
+               purge_sys->n_submitted += n_purge_threads - 1;
+
+               if (srv_trace_purging>0) {
+                       fprintf(stderr,
+                               "trx_purge_truncate_history: submitted2 time:%ld\n",
+                       ut_time_ms() - trx_purge_truncate_history_start_ms);
+               }
+
+               goto truncate_run_synchronously;
+       } else {
+               thr = que_fork_scheduler_round_robin(purge_sys->truncate, NULL);
+               ut_ad(thr);
+
+truncate_run_synchronously:
+               ++purge_sys->n_submitted;
+
+               que_run_threads(thr);
+
+               os_atomic_inc_ulint(
+                       &purge_sys->bh_mutex, &purge_sys->n_completed, 1);
+
+               if (srv_trace_purging>0) {
+                 fprintf(stderr,
+                       "trx_purge_truncate_history_start: submitted3 time:%ld\n",
+                       ut_time_ms() - trx_purge_truncate_history_start_ms);
+               }
+
+               if (n_purge_threads > 1) {
+                       trx_purge_wait_for_workers_to_complete(purge_sys);
+               }
+       }
+
+       ut_a(purge_sys->n_submitted == purge_sys->n_completed);
+}
+
+
 /********************************************************************//**
 Removes unnecessary history data from rollback segments. NOTE that when this
 function is called, the caller must not have any latches on undo log pages! */
@@ -1215,10 +1430,12 @@ static
 void
 trx_purge_truncate_history(
 /*========================*/
+        ulint   n_purge_threads,                /*!< in: number of purge tasks to submit to the work queue */
 	purge_iter_t*		limit,		/*!< in: truncate limit */
 	const ReadView*		view)		/*!< in: purge view */
 {
 	ulint		i;
+        ulint truncate_history_start_ms = ut_time_ms();
 
 	/* We play safe and set the truncate limit at most to the purge view
 	low_limit number, though this is not necessary */
@@ -1231,6 +1448,30 @@ trx_purge_truncate_history(
 
 	ut_ad(limit->trx_no <= purge_sys->view.low_limit_no());
 
+
+        trx_rseg_t** rseg_array =
+                                (trx_rseg_t**)(trx_sys->rseg_array);
+        trx_purge_truncate_history_rseg(n_purge_threads, limit, rseg_array);
+       if (srv_trace_purging>0) {
+               fprintf(stderr,
+                       "truncate_history: p1: using threads: %ld, "
+                       "time:%ld\n",
+                               n_purge_threads,  ut_time_ms() - truncate_history_start_ms);
+        }
+
+
+        rseg_array =
+                                (trx_rseg_t**)(trx_sys->pending_purge_rseg_array);
+        trx_purge_truncate_history_rseg(n_purge_threads, limit, rseg_array);
+       if (srv_trace_purging>0) {
+               fprintf(stderr,
+                       "truncate_history: p2: using threads: %ld, "
+                       "time:%ld\n",
+                               n_purge_threads, ut_time_ms() - truncate_history_start_ms);
+        }
+
+
+#if 0
 	for (i = 0; i < TRX_SYS_N_RSEGS; ++i) {
 		trx_rseg_t*	rseg = trx_sys->rseg_array[i];
 
@@ -1249,6 +1490,7 @@ trx_purge_truncate_history(
 		}
 	}
 
+#endif
 	/* UNDO tablespace truncate. We will try to truncate as much as we
 	can (greedy approach). This will ensure when the server is idle we
 	try and truncate all the UNDO tablespaces. */
@@ -1257,6 +1499,13 @@ trx_purge_truncate_history(
 		trx_purge_mark_undo_for_truncate(&purge_sys->undo_trunc);
 		trx_purge_initiate_truncate(limit, &purge_sys->undo_trunc);
 	}
+	if (srv_trace_purging>0) {
+               fprintf(stderr,
+                       "truncate_history: p3: using threads: %ld, "
+                       "time:%ld\n",
+                               n_purge_threads, ut_time_ms() - truncate_history_start_ms);
+        }
+
 }
 
 /***********************************************************************//**
@@ -1682,6 +1931,7 @@ trx_purge_attach_undo_recs(
 	for (;;) {
 		purge_node_t*		node;
 		trx_purge_rec_t*	purge_rec;
+		ulint                   old_n_pages_hadled;
 
 		ut_a(!thr->is_active);
 
@@ -1700,6 +1950,8 @@ trx_purge_attach_undo_recs(
 		}
 
 		/* Fetch the next record, and advance the purge_sys->iter. */
+                old_n_pages_hadled = n_pages_handled;
+
 		purge_rec->undo_rec = trx_purge_fetch_next_rec(
 			&purge_rec->roll_ptr, &n_pages_handled, node->heap);
 
@@ -1723,6 +1975,11 @@ trx_purge_attach_undo_recs(
 		} else {
 			break;
 		}
+
+                if (old_n_pages_hadled == n_pages_handled) {
+
+                       continue;
+                }
 
 		thr = UT_LIST_GET_NEXT(thrs, thr);
 
@@ -1778,48 +2035,21 @@ trx_purge_dml_delay(void)
 	return(delay);
 }
 
-/*******************************************************************//**
-Wait for pending purge jobs to complete. */
-static
-void
-trx_purge_wait_for_workers_to_complete(
-/*===================================*/
-	trx_purge_t*	purge_sys)	/*!< in: purge instance */
-{
-	ulint		n_submitted = purge_sys->n_submitted;
-
-	/* Ensure that the work queue empties out. */
-	while (!os_compare_and_swap_ulint(
-			&purge_sys->n_completed, n_submitted, n_submitted)) {
-
-		if (srv_get_task_queue_length() > 0) {
-			srv_release_threads(SRV_WORKER, 1);
-		}
-
-		os_thread_yield();
-	}
-
-	/* None of the worker threads should be doing any work. */
-	ut_a(purge_sys->n_submitted == purge_sys->n_completed);
-
-	/* There should be no outstanding tasks as long
-	as the worker threads are active. */
-	ut_a(srv_get_task_queue_length() == 0);
-}
 
 /******************************************************************//**
 Remove old historical changes from the rollback segments. */
 static
 void
-trx_purge_truncate(void)
+trx_purge_truncate(
+        ulint           n_purge_threads)/*!< in: number of purge threads */
 /*====================*/
 {
 	ut_ad(trx_purge_check_limit());
 
 	if (purge_sys->limit.trx_no == 0) {
-		trx_purge_truncate_history(&purge_sys->iter, &purge_sys->view);
+		trx_purge_truncate_history(n_purge_threads,&purge_sys->iter, &purge_sys->view);
 	} else {
-		trx_purge_truncate_history(&purge_sys->limit, &purge_sys->view);
+		trx_purge_truncate_history(n_purge_threads,&purge_sys->limit, &purge_sys->view);
 	}
 }
 
@@ -1837,6 +2067,7 @@ trx_purge(
 {
 	que_thr_t*	thr = NULL;
 	ulint		n_pages_handled;
+	ulint trx_purge_start_ms = ut_time_ms();
 
 	ut_a(n_purge_threads > 0);
 
@@ -1861,15 +2092,30 @@ trx_purge(
 	}
 #endif /* UNIV_DEBUG */
 
-	/* Fetch the UNDO recs that need to be purged. */
-	n_pages_handled = trx_purge_attach_undo_recs(
-		n_purge_threads, purge_sys, batch_size);
+       if (srv_trace_purging>0) {
+               fprintf(stderr,
+                       "purge coordinator: init:  using threads: %ld, "
+                       "truncate = %d, hist_len: %lu, limit.trx_no:%ld, time:%ld\n",
+                               n_purge_threads, truncate, trx_sys->rseg_history_len, purge_sys->limit.trx_no, ut_time_ms() - trx_purge_start_ms);
+        }
+
+        /* Fetch the UNDO recs that need to be purged. */
+        n_pages_handled = trx_purge_attach_undo_recs(
+                n_purge_threads, purge_sys, batch_size);
+
+        if (srv_trace_purging>0) {
+                fprintf(stderr,
+                        "purge coordinator: attached: pages dispatched %lu, using threads: %ld, "
+                        "truncate = %d, limit.trx_no:%ld, time:%ld\n",
+                        n_pages_handled, n_purge_threads, truncate, purge_sys->limit.trx_no, ut_time_ms() - trx_purge_start_ms);
+        }
 
 	/* Do we do an asynchronous purge or not ? */
 	if (n_purge_threads > 1) {
 		ulint	i = 0;
 
 		/* Submit the tasks to the work queue. */
+		thr = NULL;
 		for (i = 0; i < n_purge_threads - 1; ++i) {
 			thr = que_fork_scheduler_round_robin(
 				purge_sys->query, thr);
@@ -1878,12 +2124,20 @@ trx_purge(
 
 			srv_que_task_enqueue_low(thr);
 		}
+                if (srv_trace_purging>0) {
+                   fprintf(stderr,
+                          "purge coordinator: submitted1: time:%ld\n", ut_time_ms() - trx_purge_start_ms);
+                }
 
 		thr = que_fork_scheduler_round_robin(purge_sys->query, thr);
 		ut_a(thr != NULL);
 
 		purge_sys->n_submitted += n_purge_threads - 1;
 
+                if (srv_trace_purging>0) {
+                   fprintf(stderr,
+                           "purge coordinator: submitted2: time:%ld\n", ut_time_ms() - trx_purge_start_ms);
+		}
 		goto run_synchronously;
 
 	/* Do it synchronously. */
@@ -1899,9 +2153,21 @@ run_synchronously:
 		os_atomic_inc_ulint(
 			&purge_sys->pq_mutex, &purge_sys->n_completed, 1);
 
+                if (srv_trace_purging>0) {
+                   fprintf(stderr,
+                           "purge coordinator: submitted3: run_point: n_submitted: %ld,  time:%ld\n",
+                            purge_sys->n_submitted, ut_time_ms() - trx_purge_start_ms);
+                }
+
 		if (n_purge_threads > 1) {
 			trx_purge_wait_for_workers_to_complete(purge_sys);
 		}
+
+                if (srv_trace_purging>0) {
+                   fprintf(stderr,
+                           "purge coordinator: submitted4: wait_point:  time:%ld\n",
+                           ut_time_ms() - trx_purge_start_ms);
+                }
 	}
 
 	ut_a(purge_sys->n_submitted == purge_sys->n_completed);
@@ -1916,12 +2182,26 @@ run_synchronously:
 	rw_lock_x_unlock(&purge_sys->latch);
 #endif /* UNIV_DEBUG */
 
+        if (srv_trace_purging>0) {
+                 fprintf(stderr,
+                         "purge coordinator: purge_done: pages: %ld, time: %ld\n",
+                          n_pages_handled, ut_time_ms() - trx_purge_start_ms);
+	}
+
 	if (truncate) {
-		trx_purge_truncate();
+//		trx_purge_truncate(n_purge_threads);
+                if (!srv_var1) srv_var1=n_purge_threads;
+                trx_purge_truncate(srv_var1);
 	}
 
 	MONITOR_INC_VALUE(MONITOR_PURGE_INVOKED, 1);
 	MONITOR_INC_VALUE(MONITOR_PURGE_N_PAGE_HANDLED, n_pages_handled);
+
+        if (srv_trace_purging>0 && truncate) {
+                 fprintf(stderr,
+                                         "purge coordinator: truncate_done: purge_threads: %ld, truncate_thd: %lu, pages: %ld, hist_len %lu, time: %ld\n",
+                                         n_purge_threads, srv_var1, n_pages_handled,  trx_sys->rseg_history_len, ut_time_ms() - trx_purge_start_ms);
+	}
 
 	return(n_pages_handled);
 }
