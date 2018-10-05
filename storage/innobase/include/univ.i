@@ -33,6 +33,10 @@ Created 1/20/1994 Heikki Tuuri
 #ifndef univ_i
 #define univ_i
 
+#ifndef __linux__
+#define __thread
+#endif
+
 #ifdef UNIV_HOTBACKUP
 #include "hb_univ.i"
 #endif /* UNIV_HOTBACKUP */

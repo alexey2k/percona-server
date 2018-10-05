@@ -467,6 +467,7 @@ struct que_fork_t{
 #define QUE_FORK_PROCEDURE_CALL		9
 #define QUE_FORK_MYSQL_INTERFACE	10
 #define	QUE_FORK_RECOVERY		11
+#define QUE_FORK_TRUNCATE		12
 
 /* Query fork (or graph) states */
 #define QUE_FORK_ACTIVE		1
@@ -509,6 +510,7 @@ struct que_fork_t{
 #define QUE_NODE_ELSIF		30
 #define QUE_NODE_CALL		31
 #define QUE_NODE_EXIT		32
+#define QUE_NODE_TRUNCATE	33
 
 #ifndef UNIV_NONINL
 #include "que0que.ic"

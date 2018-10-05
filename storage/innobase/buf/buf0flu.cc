@@ -1682,6 +1682,7 @@ buf_flush_LRU_list_batch(
 	ulint		free_len = UT_LIST_GET_LEN(buf_pool->free);
 	ulint		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
 	ulint		withdraw_depth;
+        ulint           evict_ready=0;
 
 	ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
@@ -1741,6 +1742,7 @@ buf_flush_LRU_list_batch(
 		if (!failed_acquire && buf_flush_ready_for_replace(bpage)) {
 			/* block is ready for eviction i.e., it is
 			clean and is not IO-fixed or buffer fixed. */
+			++evict_ready;
 			if (srv_var10 && buf_LRU_free_page(bpage, true)) {
 				++evict_count;
 				mutex_enter(&buf_pool->LRU_list_mutex);
@@ -1768,7 +1770,7 @@ buf_flush_LRU_list_batch(
 		ut_ad(!mutex_own(block_mutex));
 		ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
-		free_len = UT_LIST_GET_LEN(buf_pool->free);
+//		free_len = UT_LIST_GET_LEN(buf_pool->free);
 		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
 
 		
@@ -1813,8 +1815,8 @@ buf_flush_LRU_list_batch(
 			scanned);
 	}
         if (srv_var8)
-         fprintf(stderr,"en:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, free: %lu, wtrs: %lu, n_iter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evict1s: %lu, fflshd: %lu\n",
-                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, free_len, 
+         fprintf(stderr,"en:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, e2: %lu, free: %lu, wtrs: %lu, niter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evct1s: %lu, fflshd: %lu\n",
+                  buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, evict_ready, free_len, 
                   waiters,
                   n_iter,
                   buf_pool->last_interval_free_page_demand_old,
@@ -3725,11 +3727,11 @@ DECLARE_THREAD(buf_lru_manager)(
 loop:
 		if (os_event_wait_time(buf_pool->lru_flush_requested, 10000) == OS_SYNC_TIME_EXCEEDED) {
                 waiters=os_atomic_decrement_ulint(&buf_pool->waiters,0);
+		   if (waiters == 0 )
+		   goto loop;
                 if (srv_var1)
                   fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld, waiters: %lu \n", i, lru_n.first, lru_n.second, waiters);
 
-		   if (waiters == 0 )
-		   goto loop;
 		}
 		
 

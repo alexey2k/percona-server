@@ -491,6 +491,10 @@ extern ulong	srv_replication_delay;
 
 extern ulint	srv_pass_corrupt_table;
 
+extern ulong    srv_trace_purging;
+extern ulong    srv_var21;
+extern ulong    srv_var22;
+
 /* Helper macro to support srv_pass_corrupt_table checks. If 'cond' is false,
 execute 'code' if srv_pass_corrupt_table is non-zero, or trigger a fatal error
 otherwise. The break statement in 'code' will obviously not work as

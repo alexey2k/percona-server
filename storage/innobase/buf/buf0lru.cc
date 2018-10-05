@@ -1579,7 +1579,10 @@ loop:
 
 
 	if (!last_lru_page_evict_failed) {
-	
+
+                if (os_atomic_increment_ulint(&buf_pool->waiters,0)>0)
+    	              os_event_set(buf_pool->lru_flush_requested);	
+    	              
 		if (srv_var4==1)
 		{
 			last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_THRESHOLD);
@@ -1589,18 +1592,23 @@ loop:
 	        	last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_ONE);
 		}
 		
+//	        if (!buf_flush_single_page_from_LRU(buf_pool)) {
+//                MONITOR_INC(MONITOR_LRU_SINGLE_FLUSH_FAILURE_COUNT);
+//                ++flush_failures;
+//        }
+
+		
 		if (!last_lru_page_evict_failed) {
 //			n_iterations++;
 //	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
 	                os_atomic_increment_ulint(&buf_pool->last_interval_free_page_evict,1);   
 			MONITOR_INC( MONITOR_LRU_GET_FREE_OK1);
+			
 			goto loop;
 		} else {
 
 		        MONITOR_INC( MONITOR_LRU_GET_FREE_OK2);
-		                if (!n_iterations)
-                 os_atomic_increment_ulint(&buf_pool->waiters,1);
-
+                        if (!n_iterations) os_atomic_increment_ulint(&buf_pool->waiters,1);
 			os_event_set(buf_pool->lru_flush_requested);
 		}
 	}
