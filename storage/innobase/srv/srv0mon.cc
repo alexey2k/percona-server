@@ -660,6 +660,26 @@ static monitor_info_t	innodb_counter_info[] =
 	 MONITOR_SET_MEMBER, MONITOR_LRU_SEARCH_SCANNED,
 	 MONITOR_LRU_SEARCH_SCANNED_PER_CALL},
 
+
+	/* Cumulative counter for LRU search scans */
+	// FIXME: fix descrition of this status var
+	{"buffer_LRU_search_scanned", "buffer",
+	 "Total pages scanned as part of LRU search",
+	 MONITOR_SET_OWNER,
+	 MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL,
+	 MONITOR_LRU_SEARCH_SCANNED_DIRTY},
+
+	{"buffer_LRU_search_num_scan", "buffer",
+	 "Number of times LRU search is performed",
+	 MONITOR_SET_MEMBER, MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+	 MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL},
+
+	{"buffer_LRU_search_scanned_per_call", "buffer",
+	 "Page scanned per single LRU search",
+	 MONITOR_SET_MEMBER, MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+	 MONITOR_LRU_SEARCH_SCANNED_DIRTY_PER_CALL},
+
+
 	/* Cumulative counter for LRU unzip search scans */
 	{"buffer_LRU_unzip_search_scanned", "buffer",
 	 "Total pages scanned as part of LRU unzip search",

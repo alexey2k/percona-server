@@ -1132,11 +1132,9 @@ buf_LRU_free_from_common_LRU_list(
 
 	for (buf_page_t* bpage = buf_pool->lru_scan_itr.start();
 	     bpage != NULL
-	     && !freed
-             && buf_LRU_should_continue_scan(scan_depth, srv_var2, scanned_dirty);
-	     //&& buf_LRU_should_continue_scan(scan_depth,
-	     //				     BUF_LRU_SEARCH_SCAN_THRESHOLD,
-	     //				     scanned);
+	     && !freed && buf_LRU_should_continue_scan(scan_depth,
+				     BUF_LRU_SEARCH_SCAN_THRESHOLD,
+				     scanned_dirty);
 	     bpage = buf_pool->lru_scan_itr.get()) {
 
 		buf_page_t*	prev = UT_LIST_GET_PREV(LRU, bpage);
@@ -1151,26 +1149,29 @@ buf_LRU_free_from_common_LRU_list(
 
 		const int lock_failed = mutex_enter_nowait(mutex);
 
+                //Redundant?
 		scanned_with_locked++;
 
 		if (lock_failed)
 			continue;
 
                 if (bpage->oldest_modification != 0)
+                {
+                   // 0 is kind of threshold here
+                   // So current behavior is to trigger LRU on the very first occurance of dirty page in LRU tail
+                   // that probably can be variable
+                   if (scanned_dirty==0)
+                   {
+                     os_event_set(buf_pool->lru_flush_requested);
+                   }
                    scanned_dirty++;
+                }
 
   		scanned++;
 
 		if (buf_flush_ready_for_replace(bpage)) {
 			freed = buf_LRU_free_page(bpage, true);
 		}
-//		else
-//		{
-//		   if (srv_var9)
-//		   {
-//		      fprintf(stderr,"i: %lu, scanned: %lu scanned_with_locked: %lu, cse: %lu \n", buf_pool->instance_no, scanned, scanned_with_locked, cse);
-//		   }
-//		}
 
 		if (!freed)
 			mutex_exit(mutex);
@@ -1202,8 +1203,28 @@ buf_LRU_free_from_common_LRU_list(
 			MONITOR_LRU_SEARCH_SCANNED_PER_CALL,
 			scanned);
 	}
-        if (srv_var9 && scanned>1)
-           fprintf(stderr,"i: %lu, scanned: %lu scanned_with_locked: %lu scanned_dirty: %lu\n", buf_pool->instance_no, scanned, scanned_with_locked, scanned_dirty);
+
+	if (scanned_dirty) {
+		MONITOR_INC_VALUE_CUMULATIVE(
+			MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+			MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL,
+			MONITOR_LRU_SEARCH_SCANNED_DIRTY_PER_CALL,
+			scanned_dirty);
+	}
+
+        uintmax_t current_time = ut_time_us(NULL);
+        mutex_enter(&buf_pool->flush_state_mutex);
+        if (buf_pool->last_interval_start2 + 1000000 < current_time) {
+                buf_pool->last_interval_start2 = current_time;
+                buf_pool->scanned_dirty_max_old=buf_pool->scanned_dirty_max;
+                buf_pool->scanned_dirty_max=0;
+        } else {
+                if (scanned_dirty > buf_pool->scanned_dirty_max)
+                {
+                   buf_pool->scanned_dirty_max=scanned_dirty;
+                }
+        }
+        mutex_exit(&buf_pool->flush_state_mutex);
 
 	return(freed);
 }
@@ -1497,6 +1518,7 @@ buf_LRU_get_free_block(
 
 	uintmax_t current_time = ut_time_us(NULL);
 	mutex_enter(&buf_pool->flush_state_mutex);
+
 	if (buf_pool->last_interval_start + 1000000 < current_time) {
 	      if (srv_var12)
 		fprintf(stderr, "Last no smaller than 1s interval demand is %llu(%llu) for instance %lu, get_free_n %lu, %lu\n",
@@ -1505,15 +1527,20 @@ buf_LRU_get_free_block(
 			buf_pool->instance_no,
 			MONITOR_VALUE(MONITOR_LRU_GET_FREE_OK),
 			buf_pool->last_interval_free_page_evict);
+
 		buf_pool->last_interval_free_page_demand_old = buf_pool->last_interval_free_page_demand;
 		buf_pool->last_interval_free_page_evict_old=buf_pool->last_interval_free_page_evict;
 		buf_pool->last_interval_free_page_old=buf_pool->last_interval_free_page;
                 buf_pool->flush_list_flushed_old=buf_pool->flush_list_flushed;
+
+		buf_pool->last_interval_free_page_demand = 1;
+                //account number of pages we evicted per last second
+                buf_pool->last_interval_free_page_evict=0;
+                //account number of free pages we got from free list per last second
+                buf_pool->last_interval_free_page=0;
+                 //account number of pages we flushed in flush list flusher per last second
                 buf_pool->flush_list_flushed=0;
 
-                buf_pool->last_interval_free_page_evict=0;
-                buf_pool->last_interval_free_page=0;
-		buf_pool->last_interval_free_page_demand = 1;
 		buf_pool->last_interval_start = current_time;
 	} else {
 		buf_pool->last_interval_free_page_demand++;
@@ -1566,7 +1593,8 @@ loop:
 
 		  MONITOR_INC( MONITOR_LRU_GET_FREE_OK );
 		}
-		  os_atomic_increment_ulint(&buf_pool->last_interval_free_page,1);
+                //account number of free pages we got from free list
+                os_atomic_increment_ulint(&buf_pool->last_interval_free_page,1);
 		return(block);
 	}
 
@@ -1575,41 +1603,28 @@ loop:
 
 	MONITOR_INC( MONITOR_LRU_GET_FREE_LOOPS );
 
-
-
-
 	if (!last_lru_page_evict_failed) {
 
-                if (os_atomic_increment_ulint(&buf_pool->waiters,0)>0)
-    	              os_event_set(buf_pool->lru_flush_requested);	
-    	              
-		if (srv_var4==1)
-		{
-			last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_THRESHOLD);
-		}
-		else
-		{
-	        	last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_ONE);
-		}
-		
-//	        if (!buf_flush_single_page_from_LRU(buf_pool)) {
-//                MONITOR_INC(MONITOR_LRU_SINGLE_FLUSH_FAILURE_COUNT);
-//                ++flush_failures;
-//        }
 
-		
+                //We trying to do single page eviction
+                // - RO - no limit to scan
+                // - RW - limit to 100(variable?) + trigger LRU at the very first dirty page
+		last_lru_page_evict_failed =!buf_LRU_scan_and_free_block(buf_pool, LRU_SCAN_DEPTH_THRESHOLD);
+
 		if (!last_lru_page_evict_failed) {
-//			n_iterations++;
-//	                os_atomic_increment_ulint(&buf_pool->n_iter,1);
 	                os_atomic_increment_ulint(&buf_pool->last_interval_free_page_evict,1);   
+                        // Would be nice to rename and keep that status var
+                        // Meaning: number of successfull single page evictions
 			MONITOR_INC( MONITOR_LRU_GET_FREE_OK1);
 			
 			goto loop;
 		} else {
 
+                        // Would be nice to rename and keep that status var
+                        // Meaning: number of times we involve LRU+backoff to resolve free pages demand
 		        MONITOR_INC( MONITOR_LRU_GET_FREE_OK2);
                         if (!n_iterations) os_atomic_increment_ulint(&buf_pool->waiters,1);
-			os_event_set(buf_pool->lru_flush_requested);
+			   os_event_set(buf_pool->lru_flush_requested);
 		}
 	}
 

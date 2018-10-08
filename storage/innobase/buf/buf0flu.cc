@@ -1694,28 +1694,35 @@ buf_flush_LRU_list_batch(
         ulint n_iter= os_atomic_increment_ulint(&buf_pool->n_iter,0);
         ulint lru_capa=srv_max_io_capacity/srv_buf_pool_instances;
         
-        ulint custom_LRU_scan_depth= srv_var6 ? (lru_capa > buf_pool->flush_list_flushed_old ? lru_capa - buf_pool->flush_list_flushed_old : 100) : srv_LRU_scan_depth;
-        
+        buf_pool->dirty_max_avg= static_cast<ulint>((buf_pool->scanned_dirty_max_old + buf_pool->dirty_max_avg)/2);
+
+         // Have doubts about this condition
          if ( buf_pool->last_interval_free_page_demand_old > (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old))
          {
-            custom_max= srv_var7 ? ( buf_pool->last_interval_free_page_demand_old - buf_pool->last_interval_free_page_old - buf_pool->last_interval_free_page_evict_old) :
-                                                  buf_pool->last_interval_free_page_demand_old;
+            // Demand for the last period was bigger than sum of amount of pages we got from free list and we have evicted for the same period
+            custom_max=  buf_pool->last_interval_free_page_demand_old - buf_pool->last_interval_free_page_old - buf_pool->last_interval_free_page_evict_old;
          } 
          else 
          { 
-            custom_max=  srv_var7 ? (waiters+1) : buf_pool->last_interval_free_page_demand_old; 
+            // Demand was less so we request to flush only amount of dirty pages we found in the LRU tail
+            custom_max=  buf_pool->dirty_max_avg+1;
          }
-            
-        ulint custom_scan_limit= std::max((srv_var11 ? (buf_pool->last_interval_free_page_demand_old +  n_iter) : srv_LRU_scan_depth), 
-                                          custom_LRU_scan_depth);
 
+        // Connection between io_capacity and capacity that remains for LRU flusher
+        // Min amount: 100 pages - again that may a variable
+        ulint custom_LRU_scan_depth= lru_capa > buf_pool->flush_list_flushed_old ? lru_capa - buf_pool->flush_list_flushed_old : 100;
+
+        //How deep should we scan
+        ulint custom_scan_limit= std::max(buf_pool->last_interval_free_page_demand_old +  n_iter, custom_LRU_scan_depth);
+
+        // If there are waiters: flush as much as possible (custom_scan_limit) otherwise flush only dirty pages in tail
         custom_max= waiters ? custom_scan_limit : custom_max;
 
 
         if (srv_var8)
-         fprintf(stderr,"st:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, free: %lu, wtrs: %lu, n_iter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evict1s: %lu, fflshd: %lu\n",
+         fprintf(stderr,"st:i: %lu, cmx: %lu, cdpth: %lu, clim: %lu, scnd: %lu, f: %lu, e: %lu, free: %lu, w: %lu, sdma: %lu, sdmo: %lu, niter: %lu, dmnd1s: %lu, f1s+e1s: %lu, f1s: %lu, e1s: %lu, fflshd: %lu\n",
                   buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, free_len, 
-                  waiters,
+                  waiters, buf_pool->dirty_max_avg, buf_pool->scanned_dirty_max_old,
                   n_iter,
                   buf_pool->last_interval_free_page_demand_old,
                   (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old),
@@ -1728,7 +1735,7 @@ buf_flush_LRU_list_batch(
 
 	for (bpage = UT_LIST_GET_LAST(buf_pool->LRU);
 	     bpage != NULL &&  (count+evict_count) < custom_max 
-	     && lru_len > BUF_LRU_MIN_LEN && scanned< custom_scan_limit;
+	     && lru_len > BUF_LRU_MIN_LEN && scanned < custom_scan_limit;
 	     ++scanned,
 	     bpage = buf_pool->lru_hp.get()) {
 
@@ -1773,10 +1780,6 @@ buf_flush_LRU_list_batch(
 //		free_len = UT_LIST_GET_LEN(buf_pool->free);
 		lru_len = UT_LIST_GET_LEN(buf_pool->LRU);
 
-		
-//                custom_LRU_scan_depth= srv_var6 ? buf_pool->flush_list_flushed : srv_LRU_scan_depth;
-                //custom_max= srv_var7 ? (os_atomic_increment_ulint(&buf_pool->waiters,0)+1) : max; 
-                //custom_scan_limit= srv_var11 ? buf_pool->last_interval_free_page_demand : srv_LRU_scan_depth;
 	}    
 
 	buf_pool->lru_hp.set(NULL);
@@ -1815,9 +1818,9 @@ buf_flush_LRU_list_batch(
 			scanned);
 	}
         if (srv_var8)
-         fprintf(stderr,"en:i: %lu, c_max: %lu, c_depth: %lu, c_lim: %lu, scnnd: %lu, f: %lu, e: %lu, e2: %lu, free: %lu, wtrs: %lu, niter: %lu, dmnd1s: %lu, f1s+e1s: %lu, free1s: %lu, evct1s: %lu, fflshd: %lu\n",
+         fprintf(stderr,"en:i: %lu, cmax: %lu, cdepth: %lu, clim: %lu, scnd: %lu, f: %lu, e: %lu, e2: %lu, free: %lu, w: %lu, sdma: %lu, sdmo: %lu, niter: %lu, dmnd1s: %lu, f1s+e1s: %lu, f1s: %lu, e1s: %lu, fflshd: %lu\n",
                   buf_pool->instance_no,custom_max, custom_LRU_scan_depth, custom_scan_limit, scanned, count, evict_count, evict_ready, free_len, 
-                  waiters,
+                  waiters, buf_pool->dirty_max_avg, buf_pool->scanned_dirty_max_old,
                   n_iter,
                   buf_pool->last_interval_free_page_demand_old,
                   (buf_pool->last_interval_free_page_old + buf_pool->last_interval_free_page_evict_old),
@@ -1937,6 +1940,9 @@ buf_do_flush_list_batch(
 			MONITOR_FLUSH_BATCH_PAGES,
 			count);
 	}
+        //Account number of pages we flushed with list flusher
+        //Zeroed in buf0lru once per sec
+        //Single threaded here?
         buf_pool->flush_list_flushed=buf_pool->flush_list_flushed+count;
 
 	return(count);
@@ -3729,8 +3735,8 @@ loop:
                 waiters=os_atomic_decrement_ulint(&buf_pool->waiters,0);
 		   if (waiters == 0 )
 		   goto loop;
-                if (srv_var1)
-                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld, waiters: %lu \n", i, lru_n.first, lru_n.second, waiters);
+//                if (srv_var1)
+//                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev: %ld, waiters: %lu \n", i, lru_n.first, lru_n.second, waiters);
 
 		}
 		

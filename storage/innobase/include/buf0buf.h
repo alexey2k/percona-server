@@ -2181,6 +2181,7 @@ struct buf_pool_t{
 					of the given type running. Protected by
 					flush_state_mutex. */
 	uintmax_t	last_interval_start;
+	uintmax_t	last_interval_start2;
 	uint64_t	last_interval_free_page_demand;
 	uint64_t	last_interval_free_page_demand_old;
 	
@@ -2303,6 +2304,9 @@ struct buf_pool_t{
         ulint last_interval_free_page_old;
         ulint last_interval_free_page_evict;
         ulint last_interval_free_page_evict_old;        
+        ulint scanned_dirty_max_old;
+        ulint scanned_dirty_max;
+        ulint dirty_max_avg;
         
 #if BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN
 # error "BUF_BUDDY_LOW > UNIV_ZIP_SIZE_MIN"
