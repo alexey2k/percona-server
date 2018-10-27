@@ -1147,15 +1147,22 @@ static void trx_purge_initiate_truncate(purge_iter_t *limit,
                   DBUG_SUICIDE(););
 }
 
-static void trx_purge_truncate_history_rseg(
-    ulint n_purge_threads, /*!< in: number of purge tasks
-                             to submit to the work queue */
-    purge_iter_t *limit, trx_rseg_t **rseg_array) {
-  que_thr_t *thr;
-  ulint i, j;
+struct purge_truncate_iter_t {
+          que_thr_t*      thr;
+          ulint           j;
+};
 
-  ulint trx_purge_truncate_history_start_ms = ut_time_ms();
-  ulint n_thrs = UT_LIST_GET_LEN(purge_sys->truncate->thrs);
+
+static
+void
+trx_purge_truncate_history_rseg_init(
+        ulint   n_purge_threads,         /*!< in: number of purge tasks
+                                                to submit to the work queue */
+        purge_iter_t*           limit,
+        purge_truncate_iter_t*  iter)
+{
+  que_thr_t*      thr=NULL;
+  ulint           i;
 
   /* Debug code to validate some pre-requisites and reset done flag. */
   for (thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs), i = 0;
@@ -1175,44 +1182,72 @@ static void trx_purge_truncate_history_rseg(
 
   ut_a(i == n_purge_threads);
 
-  thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
-  ut_a(n_thrs > 0 && thr != NULL);
+  iter->thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
+  iter->j=0;
+}
 
-  for (j = 0; j < TRX_SYS_N_RSEGS; ++j) {
-    purge_node_t *node;
 
-    i = TRX_SYS_N_RSEGS - j - 1;
+static
+void
+trx_purge_truncate_history_rseg_enqueue(
+        ulint   n_purge_threads,        /*!< in: number of purge tasks
+                                        to submit to the work queue */
+        trx_rseg_t*            rseg,
+        purge_truncate_iter_t*  iter)
+{
+  que_thr_t*      thr=NULL;
+  ulint           i;
+  purge_node_t*           node;
+  ulint           n_thrs = UT_LIST_GET_LEN(purge_sys->truncate->thrs);
 
-    //               trx_rseg_t*     rseg = trx_sys->rseg_array[i];
-    trx_rseg_t *rseg = ((trx_rseg_t **)rseg_array)[i];
+  thr=iter->thr;
+  i = TRX_SYS_N_RSEGS - iter->j - 1;
 
-    if (rseg == NULL) {
-      continue;
-    }
-
-    ut_a(rseg->id == i);
-    ut_a(!thr->is_active);
-
-    /* Get the purge node. */
-    node = (purge_node_t *)thr->child;
-
-    if (node->rsegs == NULL) {
-      node->rsegs = ib_vector_create(ib_heap_allocator_create(node->heap),
-                                     sizeof(trx_rseg_t *), TRX_SYS_N_RSEGS);
-    } else {
-      ut_a(!ib_vector_is_empty(node->rsegs));
-    }
-
-    ib_vector_push(node->rsegs, &rseg);
-
-    thr = UT_LIST_GET_NEXT(thrs, thr);
-
-    if (!(i % n_purge_threads)) {
-      thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
-    }
-
-    ut_a(thr != NULL);
+#if 0  
+    // keep precaution or drop it?
+  if (rseg == NULL) {
+    continue;
   }
+
+  ut_a(rseg->id == i);
+#endif
+  ut_a(n_thrs > 0 && thr != NULL);
+  ut_a(!thr->is_active);
+
+  /* Get the purge node. */
+  node = (purge_node_t *)thr->child;
+  if (node->rsegs == NULL) {
+    node->rsegs = ib_vector_create(ib_heap_allocator_create(node->heap),
+                                   sizeof(trx_rseg_t *), TRX_SYS_N_RSEGS);
+  } else {
+    ut_a(!ib_vector_is_empty(node->rsegs));
+  }
+
+  ib_vector_push(node->rsegs, &rseg);
+
+  thr = UT_LIST_GET_NEXT(thrs, thr);
+
+  if (!(i % n_purge_threads)) {
+    thr = UT_LIST_GET_FIRST(purge_sys->truncate->thrs);
+  }
+
+  ut_a(thr != NULL);
+
+  iter->thr=thr;
+  iter->j++;
+}
+
+static
+void
+trx_purge_truncate_history_rseg_run(
+        ulint   n_purge_threads        /*!< in: number of purge tasks
+                                       to submit to the work queue */
+)
+{
+  que_thr_t*      thr=NULL;
+  ulint           i;
+  ulint trx_purge_truncate_history_start_ms = ut_time_ms();
+
 
   ut_a(purge_sys->n_submitted == purge_sys->n_completed);
   if (n_purge_threads > 1) {
@@ -1276,6 +1311,7 @@ static void trx_purge_truncate_history(
 {
   ulint i;
   ulint truncate_history_start_ms = ut_time_ms();
+  purge_truncate_iter_t truncate_iter;
 
   /* We play safe and set the truncate limit at most to the purge view
   low_limit number, though this is not necessary */
@@ -1288,29 +1324,6 @@ static void trx_purge_truncate_history(
 
   ut_ad(limit->trx_no <= purge_sys->view.low_limit_no());
 
-#if 0  // PURGE TRUNCATE IS BROKEN for 6dec2d04761977e0537df81a24fae8e9e59ac80e
-  trx_rseg_t** rseg_array =
-      (trx_rseg_t**)(trx_sys->rseg_array);
-  trx_purge_truncate_history_rseg(n_purge_threads, limit, rseg_array);
-  if (srv_trace_purging>0) {
-    fprintf(stderr,
-            "truncate_history: p1: using threads: %ld, "
-            "time:%ld\n",
-            n_purge_threads,  ut_time_ms() - truncate_history_start_ms);
-  }
-
-  rseg_array =
-      (trx_rseg_t**)(trx_sys->pending_purge_rseg_array);
-  trx_purge_truncate_history_rseg(n_purge_threads, limit, rseg_array);
-#endif
-  if (srv_trace_purging > 0) {
-    fprintf(stderr,
-            "truncate_history: p2: using threads: %ld, "
-            "time:%ld\n",
-            n_purge_threads, ut_time_ms() - truncate_history_start_ms);
-  }
-
-#if 0
   /* Purge rollback segments in all undo tablespaces. */
   bool undo_list_is_locked = false;
   for (auto undo_space : undo::spaces->m_spaces) {
@@ -1323,15 +1336,20 @@ static void trx_purge_truncate_history(
     /* Purge rollback segments in this undo tablespace.
     Use an s-lock only for inactive rsegs. */
     bool rseg_list_is_locked = false;
+
+    trx_purge_truncate_history_rseg_init(n_purge_threads, limit, &truncate_iter);
+
     for (auto rseg : *undo_space->rsegs()) {
       if (!rseg_list_is_locked && rseg->id >= srv_rollback_segments) {
         /* These rsegs are inactive */
         undo_space->rsegs()->s_lock();
         rseg_list_is_locked = true;
       }
-
-      trx_purge_truncate_rseg_history(rseg, limit);
+      trx_purge_truncate_history_rseg_enqueue(n_purge_threads, rseg, &truncate_iter);
+//      trx_purge_truncate_rseg_history(rseg, limit);
     }
+    trx_purge_truncate_history_rseg_run(n_purge_threads);
+    
     if (rseg_list_is_locked) {
       undo_space->rsegs()->s_unlock();
     }
@@ -1340,31 +1358,58 @@ static void trx_purge_truncate_history(
     undo::spaces->s_unlock();
   }
 
+  if (srv_trace_purging>0) {
+    fprintf(stderr,
+            "truncate_history: p1: all_undo_tablespaceses: using threads: %ld, "
+            "time:%ld\n",
+            n_purge_threads,  ut_time_ms() - truncate_history_start_ms);
+  }
+
   /* Purge rollback segments in the system tablespace, if any.
   Use an s-lock for the whole list since it can have gaps and
   may be sorted when added to. */
   trx_sys->rsegs.s_lock();
+  trx_purge_truncate_history_rseg_init(n_purge_threads, limit, &truncate_iter);
   for (auto rseg : trx_sys->rsegs) {
-    trx_purge_truncate_rseg_history(rseg, limit);
+//    trx_purge_truncate_rseg_history(rseg, limit);
+     trx_purge_truncate_history_rseg_enqueue(n_purge_threads, rseg, &truncate_iter);
   }
+  trx_purge_truncate_history_rseg_run(n_purge_threads);
+
   trx_sys->rsegs.s_unlock();
+
+  if (srv_trace_purging > 0) {
+    fprintf(stderr,
+            "truncate_history: p2: system_tablespace: using threads: %ld, "
+            "time:%ld\n",
+            n_purge_threads, ut_time_ms() - truncate_history_start_ms);
+  }
 
   /* Purge rollback segments in the temporary tablespace.
   Use an s-lock only for inactive rsegs. */
   bool tmp_rseg_list_is_locked = false;
+  trx_purge_truncate_history_rseg_init(n_purge_threads, limit, &truncate_iter);
   for (auto rseg : trx_sys->tmp_rsegs) {
     if (!tmp_rseg_list_is_locked && rseg->id >= srv_rollback_segments) {
       /* These rsegs are inactive */
       trx_sys->tmp_rsegs.s_lock();
       tmp_rseg_list_is_locked = true;
     }
-
-    trx_purge_truncate_rseg_history(rseg, limit);
+    trx_purge_truncate_history_rseg_enqueue(n_purge_threads, rseg, &truncate_iter);
+//    trx_purge_truncate_rseg_history(rseg, limit);
   }
+  trx_purge_truncate_history_rseg_run(n_purge_threads);
+
   if (tmp_rseg_list_is_locked) {
     trx_sys->tmp_rsegs.s_unlock();
   }
-#endif
+  if (srv_trace_purging > 0) {
+    fprintf(stderr,
+            "truncate_history: p3: temporary_tablespace: using threads: %ld, "
+            "time:%ld\n",
+            n_purge_threads, ut_time_ms() - truncate_history_start_ms);
+  }
+
   /* UNDO tablespace truncate. We will try to truncate as much as we
   can (greedy approach). This will ensure when the server is idle we
   try and truncate all the UNDO tablespaces. */

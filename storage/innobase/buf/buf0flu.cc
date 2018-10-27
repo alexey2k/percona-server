@@ -3460,7 +3460,6 @@ static void buf_lru_manager_thread() {
          srv_shutdown_state == SRV_SHUTDOWN_CLEANUP) {
     ut_d(buf_flush_page_cleaner_disabled_loop());
 
-  loop:
     if (os_event_wait_time(buf_pool->lru_flush_requested, 10000) ==
         OS_SYNC_TIME_EXCEEDED) {
       waiters = os_atomic_decrement_ulint(&buf_pool->waiters, 0);
@@ -3480,6 +3479,7 @@ static void buf_lru_manager_thread() {
     //                 %ld\n", i, lru_n.first, lru_n.second);
     os_event_reset(buf_pool->lru_flush_requested);
 
+loop:
     if (lru_n.first) {
       srv_stats.buf_pool_flushed.add(lru_n.first);
 

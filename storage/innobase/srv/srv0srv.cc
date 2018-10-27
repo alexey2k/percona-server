@@ -3121,10 +3121,10 @@ static ulint srv_do_purge(
       fprintf(stderr,
               "purge coordinator: requested %lu threads, "
               "using %lu threads, batch size %lu, count: %ld, rseg_len:%ld, "
-              "trx_sys_hist_len:%ld, truncate_cond:%ld\n",
+              "trx_sys_hist_len:%ld, truncate_cond:%ld, trunc_freq: %ld\n",
               n_threads, n_use_threads, srv_purge_batch_size, count,
               rseg_history_len, trx_sys->rseg_history_len,
-              (count % rseg_truncate_frequency));
+              (count % rseg_truncate_frequency), rseg_truncate_frequency);
     }
 
     if (!srv_var22) {
@@ -3141,7 +3141,7 @@ static ulint srv_do_purge(
               "purge coordinator: loop_done: truncate:%ld, requested:%lu, "
               "using:%lu, batch size:%lu, prgd:%ld, prgd_total:%ld, "
               "hist_len_old:%ld, hist_len:%ld, time:%ld\n",
-              (count % TRX_SYS_N_RSEGS), n_threads, n_use_threads,
+              (count % rseg_truncate_frequency), n_threads, n_use_threads,
               srv_purge_batch_size, n_pages_purged, *n_total_purged,
               rseg_history_len, trx_sys->rseg_history_len,
               ut_time_ms() - loop_time_ms);
