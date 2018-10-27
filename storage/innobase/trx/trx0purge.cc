@@ -1203,7 +1203,7 @@ trx_purge_truncate_history_rseg_enqueue(
   thr=iter->thr;
   i = TRX_SYS_N_RSEGS - iter->j - 1;
 
-#if 0  
+#if 0
     // keep precaution or drop it?
   if (rseg == NULL) {
     continue;
@@ -1349,7 +1349,7 @@ static void trx_purge_truncate_history(
 //      trx_purge_truncate_rseg_history(rseg, limit);
     }
     trx_purge_truncate_history_rseg_run(n_purge_threads);
-    
+
     if (rseg_list_is_locked) {
       undo_space->rsegs()->s_unlock();
     }
