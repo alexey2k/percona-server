@@ -3579,6 +3579,12 @@ static void srv_shutdown_page_cleaners() {
 
   ut_ad(buf_flush_active_lru_managers() == srv_buf_pool_instances ||
         buf_flush_active_lru_managers() == 0);
+        
+//  if (buf_lru_manager_running_threads())
+  if (buf_flush_active_lru_managers())
+    for (ulint i = 0; i < srv_buf_pool_instances; i++) {
+      os_event_set(buf_pool_from_array(i)->lru_flush_requested);
+    }
 
   srv_shutdown_state.store(SRV_SHUTDOWN_FLUSH_PHASE);
 

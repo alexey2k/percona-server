@@ -739,6 +739,21 @@ static void log_flush_low(log_t &log);
 
  *******************************************************/
 
+#ifdef UNIV_LINUX
+/**
+Set priority for page_cleaner and LRU manager threads.
+@param[in]      priority        priority intended to set
+@return true if set as intended */
+static const int log_threads_priority = -20;
+
+static bool log_set_priority(int priority) {
+  setpriority(PRIO_PROCESS, (pid_t)syscall(SYS_gettid), priority);
+  return (getpriority(PRIO_PROCESS, (pid_t)syscall(SYS_gettid)) == priority);
+}
+#endif /* UNIV_LINUX */
+
+
+
 /* @{ */
 
 /** Computes index of a slot (in array of "wait events"), which should
@@ -2048,6 +2063,9 @@ void log_writer(log_t *log_ptr) {
   log_t &log = *log_ptr;
   lsn_t ready_lsn = 0;
 
+  log_set_priority(log_threads_priority);
+
+
   log_writer_mutex_enter(log);
 
   Log_thread_waiting waiting{log, log.writer_event, srv_log_writer_spin_delay,
@@ -2285,6 +2303,9 @@ void log_flusher(log_t *log_ptr) {
 
   log_t &log = *log_ptr;
 
+  log_set_priority(log_threads_priority);
+
+
   Log_thread_waiting waiting{log, log.flusher_event, srv_log_flusher_spin_delay,
                              srv_log_flusher_timeout};
 
@@ -2414,6 +2435,8 @@ void log_write_notifier(log_t *log_ptr) {
   log_t &log = *log_ptr;
   lsn_t lsn = log.write_lsn.load() + 1;
 
+  log_set_priority(log_threads_priority);
+
   log_write_notifier_mutex_enter(log);
 
   Log_thread_waiting waiting{log, log.write_notifier_event,
@@ -2512,6 +2535,9 @@ void log_flush_notifier(log_t *log_ptr) {
 
   log_t &log = *log_ptr;
   lsn_t lsn = log.flushed_to_disk_lsn.load() + 1;
+
+  log_set_priority(log_threads_priority);
+
 
   log_flush_notifier_mutex_enter(log);
 

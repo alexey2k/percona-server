@@ -417,12 +417,27 @@ static monitor_info_t innodb_counter_info[] = {
      "Number of flushes passed during the recent Avg period.", MONITOR_NONE,
      MONITOR_DEFAULT_START, MONITOR_FLUSH_AVG_PASS},
 
+    {"buffer_block_free_ok1", "buffer", "Total sleep waits in LRU get free.",
+     MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_BLOCK_FREE_OK1},
+
     {"buffer_LRU_get_free_loops", "buffer", "Total loops in LRU get free.",
      MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_LOOPS},
 
     {"buffer_LRU_get_free_waits", "buffer",
      "Total sleep waits in LRU get free.", MONITOR_NONE, MONITOR_DEFAULT_START,
      MONITOR_LRU_GET_FREE_WAITS},
+     
+    {"buffer_LRU_get_free_ok", "buffer", "Total sleep waits in LRU get free.",
+     MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK},
+
+    {"buffer_LRU_get_free_ok1", "buffer", "Total sleep waits in LRU get free.",
+     MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK1},
+
+    {"buffer_LRU_get_free_ok2", "buffer", "Total sleep waits in LRU get free.",
+     MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK2},
+
+    {"buffer_LRU_get_free_ok3", "buffer", "Total sleep waits in LRU get free.",
+     MONITOR_NONE, MONITOR_DEFAULT_START, MONITOR_LRU_GET_FREE_OK3},
 
     {"buffer_flush_avg_page_rate", "buffer",
      "Average number of pages at which flushing is happening", MONITOR_NONE,
@@ -536,6 +551,48 @@ static monitor_info_t innodb_counter_info[] = {
      "Page scanned per single LRU flush", MONITOR_SET_MEMBER,
      MONITOR_LRU_SINGLE_FLUSH_SCANNED,
      MONITOR_LRU_SINGLE_FLUSH_SCANNED_PER_CALL},
+//     
+    /* Cumulative counter for LRU single page flushed */
+    {"buffer_LRU_single_flush_total_pages", "buffer",
+     "Total pages flushed as part of LRU single flush", MONITOR_SET_OWNER,
+     MONITOR_LRU_SINGLE_FLUSH_COUNT, MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE},
+
+    {"buffer_LRU_single_flush", "buffer", "Number of LRU single flushes",
+     MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE,
+     MONITOR_LRU_SINGLE_FLUSH_COUNT},
+
+    {"buffer_LRU_single_flush_page", "buffer",
+     "Pages queued as an LRU single flush", MONITOR_SET_MEMBER,
+     MONITOR_LRU_SINGLE_FLUSH_TOTAL_PAGE, MONITOR_LRU_SINGLE_FLUSH_PAGES},
+
+    /* Cumulative counter for LRU single page evicted */
+    {"buffer_LRU_single_evict_total_pages", "buffer",
+     "Total pages evicted as part of LRU single eviction", MONITOR_SET_OWNER,
+     MONITOR_LRU_SINGLE_EVICT_COUNT, MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE},
+
+    {"buffer_LRU_single_evict", "buffer", "Number of LRU single eviction",
+     MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE,
+     MONITOR_LRU_SINGLE_EVICT_COUNT},
+
+    {"buffer_LRU_single_evict_pages", "buffer",
+     "Pages queued as an LRU single eviction", MONITOR_SET_MEMBER,
+     MONITOR_LRU_SINGLE_EVICT_TOTAL_PAGE, MONITOR_LRU_SINGLE_EVICT_PAGES},
+
+    /* Cumulative counter for LRU single page evicted */
+    {"buffer_LRU_single_evict_clean_total_pages", "buffer",
+     "Total pages evicted as part of LRU single eviction", MONITOR_SET_OWNER,
+     MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT,
+     MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE},
+
+    {"buffer_LRU_single_evict_clean", "buffer", "Number of LRU single eviction",
+     MONITOR_SET_MEMBER, MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+     MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT},
+
+    {"buffer_LRU_single_evict_clean_pages", "buffer",
+     "Pages queued as an LRU single eviction", MONITOR_SET_MEMBER,
+     MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+     MONITOR_LRU_SINGLE_EVICT_CLEAN_PAGES},
+//
 
     {"buffer_LRU_single_flush_failure_count", "Buffer",
      "Number of times attempt to flush a single page from LRU failed",
@@ -559,6 +616,23 @@ static monitor_info_t innodb_counter_info[] = {
      "Page scanned per single LRU search", MONITOR_SET_MEMBER,
      MONITOR_LRU_SEARCH_SCANNED, MONITOR_LRU_SEARCH_SCANNED_PER_CALL},
 
+    /* Cumulative counter for LRU search scans */
+    // FIXME: fix descrition of this status var
+    {"buffer_LRU_search_scanned", "buffer",
+     "Total pages scanned as part of LRU search", MONITOR_SET_OWNER,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY},
+
+    {"buffer_LRU_search_num_scan", "buffer",
+     "Number of times LRU search is performed", MONITOR_SET_MEMBER,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL},
+
+    {"buffer_LRU_search_scanned_per_call", "buffer",
+     "Page scanned per single LRU search", MONITOR_SET_MEMBER,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+     MONITOR_LRU_SEARCH_SCANNED_DIRTY_PER_CALL},
+
     /* Cumulative counter for LRU unzip search scans */
     {"buffer_LRU_unzip_search_scanned", "buffer",
      "Total pages scanned as part of LRU unzip search", MONITOR_SET_OWNER,
@@ -574,6 +648,11 @@ static monitor_info_t innodb_counter_info[] = {
      "Page scanned per single LRU unzip search", MONITOR_SET_MEMBER,
      MONITOR_LRU_UNZIP_SEARCH_SCANNED,
      MONITOR_LRU_UNZIP_SEARCH_SCANNED_PER_CALL},
+
+    {"buffer_flush_wait_redo", "buffer",
+     "Number of times a wait happens due page in redo yet", MONITOR_NONE,
+     MONITOR_DEFAULT_START, MONITOR_FLUSH_REDO_COUNT},
+
 
     /* ========== Counters for Buffer Page I/O ========== */
     {"module_buffer_page", "buffer_page_io", "Buffer Page I/O Module",

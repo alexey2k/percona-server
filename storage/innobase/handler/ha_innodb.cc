@@ -22877,6 +22877,12 @@ static MYSQL_SYSVAR_ULONGLONG(
     ulonglong{srv_buf_pool_chunk_unit_max},
     ulonglong{srv_buf_pool_chunk_unit_blk_sz});
 
+static MYSQL_SYSVAR_ULONG(
+    doublewrite_batch_size, srv_doublewrite_batch_size,
+    PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
+    "Number of pages reserved in doublewrite buffer for batch flushing", NULL,
+    NULL, 120, 1, MAX_DOUBLEWRITE_BATCH_SIZE, 0);
+
 #if defined UNIV_DEBUG || defined UNIV_PERF_DEBUG
 static MYSQL_SYSVAR_ULONG(page_hash_locks, srv_n_page_hash_locks,
                           PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
@@ -22884,11 +22890,6 @@ static MYSQL_SYSVAR_ULONG(page_hash_locks, srv_n_page_hash_locks,
                           "page_hash. Rounded up to the next power of 2",
                           NULL, NULL, 16, 1, MAX_PAGE_HASH_LOCKS, 0);
 
-static MYSQL_SYSVAR_ULONG(
-    doublewrite_batch_size, srv_doublewrite_batch_size,
-    PLUGIN_VAR_OPCMDARG | PLUGIN_VAR_READONLY,
-    "Number of pages reserved in doublewrite buffer for batch flushing", NULL,
-    NULL, 120, 1, MAX_DOUBLEWRITE_BATCH_SIZE, 0);
 
 #ifdef UNIV_LINUX
 
@@ -24091,9 +24092,10 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(track_redo_log_now),
     MYSQL_SYSVAR(merge_threshold_set_all_debug),
 #endif /* UNIV_DEBUG */
+    MYSQL_SYSVAR(doublewrite_batch_size),
 #if defined UNIV_DEBUG || defined UNIV_PERF_DEBUG
     MYSQL_SYSVAR(page_hash_locks),
-    MYSQL_SYSVAR(doublewrite_batch_size),
+
 #ifdef UNIV_LINUX
     MYSQL_SYSVAR(sched_priority_purge),
     MYSQL_SYSVAR(sched_priority_io),

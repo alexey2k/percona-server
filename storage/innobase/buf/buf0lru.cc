@@ -945,14 +945,25 @@ void buf_LRU_insert_zip_clean(buf_page_t *bpage) {
 }
 #endif /* UNIV_DEBUG || UNIV_BUF_DEBUG */
 
+static bool buf_LRU_should_continue_scan(enum lru_scan_depth scan_depth,
+                                         ulint limit, ulint scanned) {
+  return (scan_depth == lru_scan_depth::ONE && scanned == 0) ||
+         scan_depth == lru_scan_depth::ALL ||
+         (scan_depth == lru_scan_depth::THRESHOLD && scanned < limit);
+}
+
+
 /** Try to free an uncompressed page of a compressed block from the unzip
 LRU list.  The compressed page is preserved, and it need not be clean.
 @param[in]	buf_pool	buffer pool instance
 @param[in]	scan_all	scan whole LRU list if true, otherwise
                                 scan only srv_LRU_scan_depth / 2 blocks
 @return true if freed */
+//static bool buf_LRU_free_from_unzip_LRU_list(buf_pool_t *buf_pool,
+//                                             bool scan_all) {
 static bool buf_LRU_free_from_unzip_LRU_list(buf_pool_t *buf_pool,
-                                             bool scan_all) {
+                                             enum lru_scan_depth scan_depth) {
+
   ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
   if (!buf_LRU_evict_from_unzip_LRU(buf_pool)) {
@@ -963,7 +974,9 @@ static bool buf_LRU_free_from_unzip_LRU_list(buf_pool_t *buf_pool,
   bool freed = false;
 
   for (buf_block_t *block = UT_LIST_GET_LAST(buf_pool->unzip_LRU);
-       block != NULL && !freed && (scan_all || scanned < srv_LRU_scan_depth);
+       block != NULL && !freed &&
+       buf_LRU_should_continue_scan(scan_depth, srv_LRU_scan_depth, scanned);
+//        (scan_all || scanned < srv_LRU_scan_depth);
        ++scanned) {
     buf_block_t *prev_block;
 
@@ -992,12 +1005,110 @@ static bool buf_LRU_free_from_unzip_LRU_list(buf_pool_t *buf_pool,
   return (freed);
 }
 
+
+static bool buf_LRU_free_from_common_LRU_list(buf_pool_t *buf_pool,
+                                              enum lru_scan_depth scan_depth) {
+  ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
+
+  ulint scanned_with_locked = 0;
+  ulint scanned_dirty = 0;
+  ulint scanned = 0;
+  bool freed = false;
+
+  for (buf_page_t *bpage = buf_pool->lru_scan_itr.start();
+       bpage != NULL && !freed &&
+//         buf_LRU_should_continue_scan(scan_depth, srv_var2, scanned_dirty);
+       buf_LRU_should_continue_scan(scan_depth, BUF_LRU_SEARCH_SCAN_THRESHOLD, scanned_dirty);
+       bpage = buf_pool->lru_scan_itr.get()) {
+    buf_page_t *prev = UT_LIST_GET_PREV(LRU, bpage);
+    BPageMutex *mutex = buf_page_get_mutex(bpage);
+
+    buf_pool->lru_scan_itr.set(prev);
+
+    ut_ad(buf_page_in_file(bpage));
+    ut_ad(bpage->in_LRU_list);
+
+    unsigned accessed = buf_page_is_accessed(bpage);
+
+    const auto lock_failed = mutex_enter_nowait(mutex);
+
+    // Redundant?
+    scanned_with_locked++;
+
+    if (lock_failed) continue;
+
+    if (bpage->oldest_modification != 0) {
+      // 0 is kind of threshold here
+      // So current behavior is to trigger LRU on the very first occurance of
+      // dirty page in LRU tail that probably can be variable
+      if (scanned_dirty == 0) {
+        os_event_set(buf_pool->lru_flush_requested);
+      }
+      scanned_dirty++;
+    }
+
+    scanned++;
+
+    if (buf_flush_ready_for_replace(bpage)) {
+      freed = buf_LRU_free_page(bpage, true);
+    }
+
+    if (!freed) mutex_exit(mutex);
+    if (freed && !accessed) {
+      /* Keep track of pages that are evicted without
+      ever being accessed. This gives us a measure of
+      the effectiveness of readahead */
+      ++buf_pool->stat.n_ra_pages_evicted;
+    }
+
+    ut_ad(!mutex_own(mutex));
+
+    if (freed) {
+      MONITOR_INC_VALUE_CUMULATIVE(MONITOR_LRU_SINGLE_EVICT_CLEAN_TOTAL_PAGE,
+                                   MONITOR_LRU_SINGLE_EVICT_CLEAN_COUNT,
+                                   MONITOR_LRU_SINGLE_EVICT_CLEAN_PAGES, 1);
+
+      break;
+    }
+  }
+
+  if (scanned) {
+    MONITOR_INC_VALUE_CUMULATIVE(MONITOR_LRU_SEARCH_SCANNED,
+                                 MONITOR_LRU_SEARCH_SCANNED_NUM_CALL,
+                                 MONITOR_LRU_SEARCH_SCANNED_PER_CALL, scanned);
+  }
+
+  if (scanned_dirty) {
+    MONITOR_INC_VALUE_CUMULATIVE(MONITOR_LRU_SEARCH_SCANNED_DIRTY,
+                                 MONITOR_LRU_SEARCH_SCANNED_DIRTY_NUM_CALL,
+                                 MONITOR_LRU_SEARCH_SCANNED_DIRTY_PER_CALL,
+                                 scanned_dirty);
+  }
+#ifdef LRU_ADV
+  uintmax_t current_time = ut_time_us(NULL);
+  mutex_enter(&buf_pool->flush_state_mutex);
+  if (buf_pool->last_interval_start2 + 1000000 < current_time) {
+    buf_pool->last_interval_start2 = current_time;
+    buf_pool->scanned_dirty_max_old = buf_pool->scanned_dirty_max;
+    buf_pool->scanned_dirty_max = 0;
+  } else {
+    if (scanned_dirty > buf_pool->scanned_dirty_max) {
+      buf_pool->scanned_dirty_max = scanned_dirty;
+    }
+  }
+  mutex_exit(&buf_pool->flush_state_mutex);
+#endif
+
+  return (freed);
+}
+
+
 /** Try to free a clean page from the common LRU list.
 @param[in,out]	buf_pool	buffer pool instance
 @param[in]	scan_all	scan whole LRU list if true, otherwise scan
                                 only up to BUF_LRU_SEARCH_SCAN_THRESHOLD
 @return true if freed */
-static bool buf_LRU_free_from_common_LRU_list(buf_pool_t *buf_pool,
+static bool buf_LRU_free_from_common_LRU_list_orig(buf_pool_t *buf_pool,
                                               bool scan_all) {
   ut_ad(mutex_own(&buf_pool->LRU_list_mutex));
 
@@ -1052,18 +1163,25 @@ static bool buf_LRU_free_from_common_LRU_list(buf_pool_t *buf_pool,
 @param[in]	scan_all	scan whole LRU list if ture, otherwise scan
                                 only BUF_LRU_SEARCH_SCAN_THRESHOLD blocks
 @return true if found and freed */
-bool buf_LRU_scan_and_free_block(buf_pool_t *buf_pool, bool scan_all) {
+//bool buf_LRU_scan_and_free_block(buf_pool_t *buf_pool, bool scan_all) {
+bool buf_LRU_scan_and_free_block(buf_pool_t *buf_pool,
+                                 enum lru_scan_depth scan_depth) {
+
   bool freed = false;
   bool use_unzip_list = UT_LIST_GET_LEN(buf_pool->unzip_LRU) > 0;
 
   mutex_enter(&buf_pool->LRU_list_mutex);
 
   if (use_unzip_list) {
-    freed = buf_LRU_free_from_unzip_LRU_list(buf_pool, scan_all);
+//    freed = buf_LRU_free_from_unzip_LRU_list(buf_pool, scan_all);
+    freed = buf_LRU_free_from_unzip_LRU_list(buf_pool, scan_depth);
+
   }
 
   if (!freed) {
-    freed = buf_LRU_free_from_common_LRU_list(buf_pool, scan_all);
+//    freed = buf_LRU_free_from_common_LRU_list(buf_pool, scan_all);
+    freed = buf_LRU_free_from_common_LRU_list(buf_pool, scan_depth);
+
   }
 
   if (!freed) {
@@ -1293,6 +1411,7 @@ buf_block_t *buf_LRU_get_free_block(buf_pool_t *buf_pool) {
   bool mon_value_was = false;
   bool started_monitor = false;
   ib_time_monotonic_ms_t started_time = 0;
+  bool last_lru_page_evict_failed = false;
 
   ut_ad(!mutex_own(&buf_pool->LRU_list_mutex));
 
@@ -1333,6 +1452,31 @@ loop:
   if (!started_time) started_time = ut_time_monotonic_ms();
 
   MONITOR_INC(MONITOR_LRU_GET_FREE_LOOPS);
+
+  if (!last_lru_page_evict_failed) {
+    // We trying to do single page eviction
+    // - RO - no limit to scan
+    // - RW - limit to 100(variable?) + trigger LRU at the very first dirty page
+    last_lru_page_evict_failed =
+        !buf_LRU_scan_and_free_block(buf_pool, lru_scan_depth::THRESHOLD);
+
+    if (!last_lru_page_evict_failed) {
+      os_atomic_increment_ulint(&buf_pool->last_interval_free_page_evict, 1);
+      // Would be nice to rename and keep that status var
+      // Meaning: number of successfull single page evictions
+      MONITOR_INC(MONITOR_LRU_GET_FREE_OK1);
+
+      goto loop;
+    } else {
+      // Would be nice to rename and keep that status var
+      // Meaning: number of times we involve LRU+backoff to resolve free pages
+      // demand
+      MONITOR_INC(MONITOR_LRU_GET_FREE_OK2);
+      if (!n_iterations) os_atomic_increment_ulint(&buf_pool->waiters, 1);
+      os_event_set(buf_pool->lru_flush_requested);
+    }
+  }
+
 
   freed = false;
 
@@ -1411,7 +1555,11 @@ loop:
     If we are doing for the first time we'll scan only
     tail of the LRU list otherwise we scan the whole LRU
     list. */
-    freed = buf_LRU_scan_and_free_block(buf_pool, n_iterations > 0);
+//    freed = buf_LRU_scan_and_free_block(buf_pool, n_iterations > 0);
+    freed = buf_LRU_scan_and_free_block(
+        buf_pool,
+        n_iterations > 0 ? lru_scan_depth::ALL : lru_scan_depth::THRESHOLD);
+
 
     if (!freed && n_iterations == 0) {
       /* Tell other threads that there is no point
@@ -2019,6 +2167,8 @@ bool buf_LRU_free_page(buf_page_t *bpage, bool zip) {
   }
 
   buf_LRU_block_free_hashed_page((buf_block_t *)bpage);
+
+//  MONITOR_INC(MONITOR_BLOCK_FREE_OK1);
 
   return (true);
 }

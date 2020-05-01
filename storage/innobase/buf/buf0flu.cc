@@ -3428,6 +3428,10 @@ static void buf_lru_manager_thread(size_t buf_pool_instance) {
   ib_time_monotonic_ms_t lru_sleep_time{1000};
   auto next_loop_time = ut_time_monotonic_ms() + lru_sleep_time;
   ulint lru_n_flushed = 1;
+//  ulint lru_n_flushed = 0;
+
+  ulint waiters=0;
+
 
   /* On server shutdown, the LRU manager thread runs through cleanup
   phase to provide free pages for the master and purge threads.  */
@@ -3435,16 +3439,38 @@ static void buf_lru_manager_thread(size_t buf_pool_instance) {
          srv_shutdown_state.load() == SRV_SHUTDOWN_CLEANUP) {
     ut_d(buf_flush_page_cleaner_disabled_loop());
 
-    buf_lru_manager_sleep_if_needed(next_loop_time);
+//    buf_lru_manager_sleep_if_needed(next_loop_time);
 
-    buf_lru_manager_adapt_sleep_time(buf_pool, lru_n_flushed, lru_sleep_time);
+//    buf_lru_manager_adapt_sleep_time(buf_pool, lru_n_flushed, lru_sleep_time);
 
-    next_loop_time = ut_time_monotonic_ms() + lru_sleep_time;
+//    next_loop_time = ut_time_monotonic_ms() + lru_sleep_time;
+
+
+    if (os_event_wait_time(buf_pool->lru_flush_requested, 10000) ==
+        OS_SYNC_TIME_EXCEEDED) {
+      waiters = os_atomic_decrement_ulint(&buf_pool->waiters, 0);
+      if (UNIV_LIKELY(waiters == 0)) goto loop;
+      //                if (srv_var1)
+      //                  fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld,
+      //                  ev: %ld, waiters: %lu \n", i, lru_n.first,
+      //                  lru_n.second, waiters);
+    }
 
     lru_n_flushed = buf_flush_LRU_list(buf_pool);
 
     buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
 
+    //                if (srv_var1)
+    //                 fprintf(stderr,"flushing: i: %ld, single: 0, fl: %ld, ev:
+    //                 %ld\n", i, lru_n.first, lru_n.second);
+    os_event_reset(buf_pool->lru_flush_requested);
+
+
+//    lru_n_flushed = buf_flush_LRU_list(buf_pool);
+
+//    buf_flush_wait_batch_end(buf_pool, BUF_FLUSH_LRU);
+
+loop:
     if (lru_n_flushed) {
       srv_stats.buf_pool_flushed.add(lru_n_flushed);
 
