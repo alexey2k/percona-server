@@ -243,6 +243,13 @@ ib_time_monotonic_ms_t ut_time_monotonic_ms(void);
  @return us since epoch or 0 if failed to retrieve */
 ib_time_monotonic_t ut_time_monotonic(void);
 
+/** Returns the number of milliseconds since some epoch.  The
+ value may wrap around.  It should only be used for heuristic
+ purposes.
+ @return ms since epoch */
+ulint ut_time_ms(void);
+
+
 /** Returns the difference of two times in seconds.
  @return time2 - time1 expressed in seconds */
 double ut_difftime(ib_time_t time2,  /*!< in: time */

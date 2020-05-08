@@ -98,6 +98,21 @@ ib_time_monotonic_t ut_time_monotonic(void) {
   return (ret);
 }
 
+#define ut_gettimeofday gettimeofday
+/** Returns the number of milliseconds since some epoch.  The
+ value may wrap around.  It should only be used for heuristic
+ purposes.
+ @return ms since epoch */
+ulint ut_time_ms(void) {
+  struct timeval tv;
+
+  ut_gettimeofday(&tv, NULL);
+
+  return ((ulint)tv.tv_sec * 1000 + tv.tv_usec / 1000);
+}
+
+
+
 /** Returns the difference of two times in seconds.
  @return time2 - time1 expressed in seconds */
 double ut_difftime(ib_time_t time2, /*!< in: time */

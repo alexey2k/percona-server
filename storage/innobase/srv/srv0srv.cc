@@ -702,6 +702,11 @@ std::atomic<ulint> srv_sec_rec_cluster_reads(0);
 /** Number of times prefix optimization avoided triggering cluster lookup */
 std::atomic<ulint> srv_sec_rec_cluster_reads_avoided(0);
 
+ulong srv_trace_purging = 0;
+ulong srv_var21 = 0;
+ulong srv_var22 = 0;
+
+
 /* Interval in seconds at which various tasks are performed by the
 master thread when server is active. In order to balance the workload,
 we should try to keep intervals such that they are not multiple of
@@ -3236,16 +3241,23 @@ static bool srv_purge_should_exit(
  @return true if a task was executed */
 static bool srv_task_execute(void) {
   que_thr_t *thr = NULL;
+  ulint start_ms = 0;
 
   ut_ad(!srv_read_only_mode);
   ut_a(srv_force_recovery < SRV_FORCE_NO_BACKGROUND);
+
+  if (srv_trace_purging > 2) {
+    fprintf(stderr, "worker thread %lu starts working\n", os_thread_handle());
+    start_ms = ut_time_ms();
+  }
 
   mutex_enter(&srv_sys->tasks_mutex);
 
   if (UT_LIST_GET_LEN(srv_sys->tasks) > 0) {
     thr = UT_LIST_GET_FIRST(srv_sys->tasks);
 
-    ut_a(que_node_get_type(thr->child) == QUE_NODE_PURGE);
+    ut_a(que_node_get_type(thr->child) == QUE_NODE_PURGE ||
+         que_node_get_type(thr->child) == QUE_NODE_TRUNCATE);
 
     UT_LIST_REMOVE(srv_sys->tasks, thr);
   }
@@ -3258,6 +3270,15 @@ static bool srv_task_execute(void) {
     os_atomic_inc_ulint(&purge_sys->pq_mutex, &purge_sys->n_completed, 1);
 
     srv_inc_activity_count();
+  }
+
+  if (srv_trace_purging > 2) {
+    fprintf(
+        stderr,
+        "worker thread %lu completed working, thr %p, "
+        "time %lu ms, completed: %lu\n",
+        os_thread_handle(), thr, ut_time_ms() - start_ms,
+        os_atomic_inc_ulint(&purge_sys->bh_mutex, &purge_sys->n_completed, 0));
   }
 
   return (thr != NULL);
@@ -3300,9 +3321,16 @@ void srv_worker_thread() {
   end up waiting forever in trx_purge_wait_for_workers_to_complete() */
 
   do {
+    ulint start_tstamp = 0;
+
     srv_suspend_thread(slot);
 
     os_event_wait(slot->event);
+
+    if (srv_trace_purging > 2) {
+      fprintf(stderr, "purge worker %lu woke up after %lu ms\n",
+              os_thread_handle(), (ulong)(ut_time_ms() - start_tstamp));
+    }
 
     srv_current_thread_priority = srv_purge_thread_priority;
 
@@ -3344,6 +3372,8 @@ static ulint srv_do_purge(
 
   const auto n_threads = srv_threads.m_purge_workers_n;
 
+  ulint loop_time_ms = 0;
+
   ut_a(n_threads > 0);
   ut_ad(!srv_read_only_mode);
 
@@ -3359,6 +3389,10 @@ static ulint srv_do_purge(
 
   do {
     srv_current_thread_priority = srv_purge_thread_priority;
+
+    if (srv_trace_purging > 0) {
+      loop_time_ms = ut_time_ms();
+    }
 
     if (trx_sys->rseg_history_len > rseg_history_len ||
         (srv_max_purge_lag > 0 && rseg_history_len > srv_max_purge_lag)) {
@@ -3394,10 +3428,39 @@ static ulint srv_do_purge(
     ulint rseg_truncate_frequency = ut_min(
         static_cast<ulint>(srv_purge_rseg_truncate_frequency), undo_trunc_freq);
 
-    n_pages_purged = trx_purge(n_use_threads, srv_purge_batch_size,
-                               (++count % rseg_truncate_frequency) == 0);
+    if (srv_trace_purging > 0) {
+      fprintf(stderr,
+              "purge coordinator: requested %lu threads, "
+              "using %lu threads, batch size %lu, count: %ld, rseg_len:%ld, "
+              "trx_sys_hist_len:%ld, truncate_cond:%ld, trunc_freq: %ld\n",
+              n_threads, n_use_threads, srv_purge_batch_size, count,
+              rseg_history_len, trx_sys->rseg_history_len,
+              (count % rseg_truncate_frequency), rseg_truncate_frequency);
+    }
+
+    //for perf debug: temporary disable purge 
+    if (!srv_var22) {
+      n_pages_purged = trx_purge(n_use_threads, srv_purge_batch_size,
+                                 (++count % rseg_truncate_frequency) == 0);
+    } else {
+      n_pages_purged = 0;
+    }
+
+//    n_pages_purged = trx_purge(n_use_threads, srv_purge_batch_size,
+//                               (++count % rseg_truncate_frequency) == 0);
 
     *n_total_purged += n_pages_purged;
+
+    if (srv_trace_purging > 0) {
+      fprintf(stderr,
+              "purge coordinator: loop_done: truncate:%ld, requested:%lu, "
+              "using:%lu, batch size:%lu, prgd:%ld, prgd_total:%ld, "
+              "hist_len_old:%ld, hist_len:%ld, time:%ld\n",
+              (count % rseg_truncate_frequency), n_threads, n_use_threads,
+              srv_purge_batch_size, n_pages_purged, *n_total_purged,
+              rseg_history_len, trx_sys->rseg_history_len,
+              ut_time_ms() - loop_time_ms);
+    }
 
   } while (!srv_purge_should_exit(n_pages_purged) && n_pages_purged > 0 &&
            purge_sys->state == PURGE_STATE_RUN);
@@ -3424,6 +3487,7 @@ static void srv_purge_coordinator_suspend(
 
   do {
     ulint ret;
+    ulint suspend_tstamp = 0;
 
     rw_lock_x_lock(&purge_sys->latch);
 
@@ -3435,11 +3499,48 @@ static void srv_purge_coordinator_suspend(
     we want to signal the thread that wants to suspend purge. */
 
     if (stop) {
+
+      if (srv_trace_purging > 0) {
+        fprintf(stderr,
+                "purge coordinator: "
+                "suspending, dirty hist len %lu\n",
+                trx_sys->rseg_history_len);
+        suspend_tstamp = ut_time_ms();
+      }
+
       os_event_wait_low(slot->event, sig_count);
+
+      if (srv_trace_purging > 0) {
+        fprintf(stderr,
+                "purge coordinator: woke up, was "
+                "suspended for %lu us, "
+                "dirty hist len %lu\n",
+                ut_time_ms() - suspend_tstamp, trx_sys->rseg_history_len);
+      }
+
       ret = 0;
     } else if (rseg_history_len <= trx_sys->rseg_history_len) {
+      if (srv_trace_purging > 0) {
+        fprintf(stderr,
+                "purge coordinator: "
+                "suspending with timeout %llu, "
+                "current hist len %lu, "
+                "old hist len %lu\n",
+                (unsigned long long)SRV_PURGE_MAX_TIMEOUT,
+                trx_sys->rseg_history_len, rseg_history_len);
+      }
+
       ret =
           os_event_wait_time_low(slot->event, SRV_PURGE_MAX_TIMEOUT, sig_count);
+
+      if (srv_trace_purging > 0) {
+        fprintf(stderr,
+                "purge coordinator: woke up, was "
+                "suspended for %lu us, "
+                "dirty hist len %lu\n",
+                ut_time_ms() - suspend_tstamp, trx_sys->rseg_history_len);
+      }
+
     } else {
       /* We don't want to waste time waiting, if the
       history list increased by the time we got here,
@@ -3556,6 +3657,9 @@ void srv_purge_coordinator_thread() {
 
     if (srv_shutdown_state.load() == SRV_SHUTDOWN_NONE &&
         (purge_sys->state == PURGE_STATE_STOP || n_total_purged == 0)) {
+      if (srv_trace_purging > 0) {
+        fprintf(stderr, "coordinator: last purge purged %lu\n", n_total_purged);
+      }
       srv_purge_coordinator_suspend(slot, rseg_history_len);
     }
 

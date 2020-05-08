@@ -23223,6 +23223,19 @@ static MYSQL_SYSVAR_ULONG(
     "flushed redo. Expressed in microseconds.",
     NULL, NULL, INNODB_LOG_WAIT_FOR_FLUSH_SPIN_HWM_DEFAULT, 0, ULONG_MAX, 0);
 
+static MYSQL_SYSVAR_ULONG(trace_purging, srv_trace_purging, PLUGIN_VAR_RQCMDARG,
+                         "If true, trace purging in the error log", NULL, NULL,
+                          0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var21, srv_var21, PLUGIN_VAR_RQCMDARG,
+                          "If true, trace purging in the error log", NULL, NULL,
+                          0, 0, ~0UL, 0);
+
+static MYSQL_SYSVAR_ULONG(var22, srv_var22, PLUGIN_VAR_RQCMDARG,
+                          "If true, trace purging in the error log", NULL, NULL,
+                          0, 0, ~0UL, 0);
+
+
 #ifdef ENABLE_EXPERIMENT_SYSVARS
 
 static MYSQL_SYSVAR_ULONG(
@@ -24081,6 +24094,9 @@ static SYS_VAR *innobase_system_variables[] = {
     MYSQL_SYSVAR(monitor_reset_all),
     MYSQL_SYSVAR(purge_threads),
     MYSQL_SYSVAR(purge_batch_size),
+    MYSQL_SYSVAR(trace_purging),
+    MYSQL_SYSVAR(var21),
+    MYSQL_SYSVAR(var22),
 #ifdef UNIV_DEBUG
     MYSQL_SYSVAR(background_drop_list_empty),
     MYSQL_SYSVAR(purge_run_now),
