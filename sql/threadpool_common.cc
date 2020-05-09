@@ -36,6 +36,10 @@ uint threadpool_size;
 uint threadpool_stall_limit;
 uint threadpool_max_threads;
 uint threadpool_oversubscribe;
+uint threadpool_max_size=MAX_THREAD_GROUPS;
+uint threadpool_prio_kickup_timer;
+my_bool threadpool_exact_stats;
+my_bool threadpool_dedicated_listener;
 
 /* Stats */
 TP_STATISTICS tp_stats;
